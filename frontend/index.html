@@ -89,13 +89,14 @@
 
 <footer class="footer"><div class="wrap footerin">
   <div><b class="brand" style="font-size:1.2rem;color:#fff"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span style="color:#d7b9ff">-CATION</span></b><br><small>Learn. Grow. Succeed.</small></div>
-  <small>© <span id="year"></span> G-CATION · <a href="login.html">Student login</a> · <a href="admin-login.html">Admin login</a></small>
+  <small class="row" style="gap:8px">© <span id="year"></span> G-CATION · <a href="https://github.com/anikchand461/gcation" target="_blank" rel="noopener" class="row" style="gap:6px" id="ghLink">GitHub</a></small>
 </div></footer>
 
 <script src="js/config.js"></script>
 <script src="js/common.js"></script>
 <script>
 document.getElementById('year').textContent = new Date().getFullYear();
+document.getElementById('ghLink').insertAdjacentHTML('afterbegin', icon('github'));
 document.getElementById('adminBtn').innerHTML = icon('shield') + ' Admin';
 document.getElementById('adminBtnM').innerHTML = icon('shield') + ' Admin login';
 
