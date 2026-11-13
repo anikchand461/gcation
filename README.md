@@ -12,6 +12,7 @@ community and updates, all in one place.</p>
   <a href="https://gcation.vercel.app"><img src="https://img.shields.io/badge/%E2%96%B2%20Live%20website-gcation.vercel.app-7c3aed?style=for-the-badge&logo=vercel&logoColor=white&labelColor=000000" alt="Live website: gcation.vercel.app"></a>
   <a href="https://gcation.onrender.com"><img src="https://img.shields.io/badge/API-gcation.onrender.com-46E3B7?style=for-the-badge&logo=render&logoColor=white&labelColor=000000" alt="API: gcation.onrender.com"></a>
   <a href="https://github.com/anikchand461/gcation"><img src="https://img.shields.io/badge/GitHub-anikchand461%2Fgcation-24292f?style=for-the-badge&logo=github&logoColor=white&labelColor=000000" alt="GitHub repository"></a>
+  <a href="https://github.com/anikchand461/gcation/releases/latest/download/gcation.apk"><img src="https://img.shields.io/badge/Download-Android%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white&labelColor=000000" alt="Download the Android app"></a>
 </p>
 
 <p align="center">
@@ -22,7 +23,7 @@ community and updates, all in one place.</p>
   <img src="https://img.shields.io/badge/Payments-UPI%20QR-5f259f?style=flat-square" alt="UPI QR payments">
 </p>
 
-<p align="center"><a href="https://gcation.vercel.app"><b>→ Open the website</b></a></p>
+<p align="center"><a href="https://gcation.vercel.app"><b>→ Open the website</b></a> &nbsp;·&nbsp; <a href="https://github.com/anikchand461/gcation/releases/latest/download/gcation.apk"><b>↓ Download the Android app</b></a></p>
 
 ---
 
@@ -33,6 +34,18 @@ approved payment. No payment gateway is needed.
 
 - **Backend:** FastAPI (Python) with a Neon Postgres database
 - **Frontend:** plain HTML, CSS and JavaScript (no build step), light and dark themes, works on phones and laptops
+- **Android app:** Go + Gio, for students and the admin ([download the latest APK](https://github.com/anikchand461/gcation/releases/latest/download/gcation.apk))
+
+## Android app
+
+Download the latest version: **[gcation.apk](https://github.com/anikchand461/gcation/releases/latest/download/gcation.apk)** (Android 7.0 or newer).
+All versions are on the [Releases](https://github.com/anikchand461/gcation/releases) page.
+
+1. Download the APK on your phone and open it.
+2. If Android asks, allow installs from your browser or file manager.
+3. Tap **Install**, then log in as a student, or choose **Admin** to manage the platform.
+
+To build it yourself, see [mobile/README.md](mobile/README.md).
 
 ## Features
 
@@ -89,7 +102,7 @@ gcation/
 │   │   ├── schemas.py       Request validation
 │   │   ├── assets/logo.png  Logo used on receipts
 │   │   └── routers/         public.py, student.py, admin.py
-│   ├── API.md               Endpoint reference (also for the future Go + Gio app)
+│   ├── API.md               Endpoint reference (used by the website and the Android app)
 │   ├── requirements.txt
 │   └── .env.example         Copy to .env and fill in
 ├── frontend/
@@ -102,6 +115,7 @@ gcation/
 │   ├── css/style.css        Design system, light + dark themes
 │   ├── js/config.js         Backend address (API_BASE)
 │   └── js/                  common.js, dashboard.js, admin.js
+├── mobile/                  Android app (Go + Gio), see mobile/README.md
 └── run.sh                   Starts backend + frontend together
 ```
 
