@@ -115,6 +115,10 @@ function initials(name) {
   return String(name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 }
 
+// Extra help contacts shown on the student Profile page, next to the admin-set support number.
+const HELP_PHONE_2 = '+91 89726 21425';
+const HELP_EMAIL = 'gcationadmin27@gmail.com';
+
 // Phone helpers: tel: link and WhatsApp link (assumes India when no country code).
 function telHref(phone) { return 'tel:' + String(phone).replace(/[^\d+]/g, ''); }
 function waHref(phone, text = '') {

@@ -548,9 +548,10 @@ function viewProfile() {
         <div class="card pad-lg">
           <h3 class="card-title">${icon('phone')} Need help?</h3>
           <p class="card-sub">Questions about payment, classes or your account.</p>
-          ${me.payment.contact_phone ? `<div class="row">
-            <a class="btn outline" href="${esc(telHref(me.payment.contact_phone))}">${icon('phone')} ${esc(me.payment.contact_phone)}</a>
-            <a class="btn outline" href="${esc(waHref(me.payment.contact_phone, `Hi G-CATION, I need help. My Student ID is ${s.id}.`))}" target="_blank" rel="noopener">${icon('message')} WhatsApp</a></div>` : ''}
+          ${[me.payment.contact_phone, HELP_PHONE_2].filter(Boolean).map(p => `<div class="row" style="margin-bottom:8px">
+            <a class="btn outline" href="${esc(telHref(p))}">${icon('phone')} ${esc(p)}</a>
+            <a class="btn outline" href="${esc(waHref(p, `Hi G-CATION, I need help. My Student ID is ${s.id}.`))}" target="_blank" rel="noopener">${icon('message')} WhatsApp</a></div>`).join('')}
+          <div class="row"><a class="btn outline" href="mailto:${HELP_EMAIL}">${icon('mail')} ${HELP_EMAIL}</a></div>
         </div>
         <button class="btn danger block" id="logoutBtn2">${icon('logout')} Log out</button>
       </div>

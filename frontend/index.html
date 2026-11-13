@@ -177,7 +177,7 @@ api('/api/courses').then(courses => {
         <h2 style="font-size:1.6rem;margin:12px 0 6px">${esc(c.title)}</h2>
         <p class="sub" style="margin:0">${esc(c.description)}</p>
         <div class="price">${rupees(c.price)} <small>/ ${esc(durationLabel(c.default_days))}</small></div>
-        ${c.features.length ? `<ul class="features">${c.features.map(f => `<li>${icon('checkCircle')} ${esc(f)}</li>`).join('')}</ul>` : '<div style="height:16px"></div>'}
+        ${c.features.length ? `<ul class="features">${c.features.map(f => `<li>${icon('checkCircle')} ${esc(f.replace(/^\s*[-•*]\s*/, ''))}</li>`).join('')}</ul>` : '<div style="height:16px"></div>'}
         <a class="btn primary block lg" href="login.html#register">Enroll now</a>
         <p class="tiny muted center" style="margin:10px 0 0">Access starts after the G-CATION team verifies your payment.</p>
       </div>

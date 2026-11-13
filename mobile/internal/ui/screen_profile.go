@@ -11,12 +11,12 @@ import (
 )
 
 type profileState struct {
-	name, phone, cur, next                  *field
-	filled                                  bool
-	save, changePw, call, wa, theme, logout widget.Clickable
-	copyID                                  widget.Clickable
-	savingProfile, savingPw                 bool
-	profileErr, pwErr                       string
+	name, phone, cur, next                                    *field
+	filled                                                    bool
+	save, changePw, call, wa, call2, wa2, mail, theme, logout widget.Clickable
+	copyID                                                    widget.Clickable
+	savingProfile, savingPw                                   bool
+	profileErr, pwErr                                         string
 }
 
 func (s *profileState) init() {
@@ -57,6 +57,15 @@ func (a *App) layoutProfile(gtx C) D {
 	}
 	if s.wa.Clicked(gtx) && phone != "" {
 		a.open(waURL(phone, fmt.Sprintf("Hi G-CATION, I need help. My Student ID is %d.", me.Student.ID)))
+	}
+	if s.call2.Clicked(gtx) {
+		a.open(telURL(helpPhone2))
+	}
+	if s.wa2.Clicked(gtx) {
+		a.open(waURL(helpPhone2, fmt.Sprintf("Hi G-CATION, I need help. My Student ID is %d.", me.Student.ID)))
+	}
+	if s.mail.Clicked(gtx) {
+		a.open("mailto:" + helpEmail)
 	}
 
 	items := []layout.Widget{
@@ -155,19 +164,29 @@ func (a *App) layoutProfile(gtx C) D {
 					layout.Rigid(vspace(4)),
 					layout.Rigid(func(gtx C) D { return a.th.muted(gtx, "Questions about payment, classes or your account.", 12.5) }),
 				}
-				if phone != "" {
-					kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D {
-						return layout.Flex{}.Layout(gtx,
-							layout.Flexed(1, func(gtx C) D {
-								return a.th.button(gtx, &s.call, "Call", btnOpt{full: true, kind: btnOutline, icon: icCall})
-							}),
-							layout.Rigid(hspace(8)),
-							layout.Flexed(1, func(gtx C) D {
-								return a.th.button(gtx, &s.wa, "WhatsApp", btnOpt{full: true, kind: btnOutline, icon: icChat})
-							}),
-						)
-					}))
+				phoneRow := func(num string, call, wa *widget.Clickable) {
+					kids = append(kids, layout.Rigid(vspace(12)),
+						layout.Rigid(func(gtx C) D { return a.th.label(gtx, num, textOpt{size: 14, weight: font.SemiBold}) }),
+						layout.Rigid(vspace(8)),
+						layout.Rigid(func(gtx C) D {
+							return layout.Flex{}.Layout(gtx,
+								layout.Flexed(1, func(gtx C) D {
+									return a.th.button(gtx, call, "Call", btnOpt{full: true, kind: btnOutline, icon: icCall})
+								}),
+								layout.Rigid(hspace(8)),
+								layout.Flexed(1, func(gtx C) D {
+									return a.th.button(gtx, wa, "WhatsApp", btnOpt{full: true, kind: btnOutline, icon: icChat})
+								}),
+							)
+						}))
 				}
+				if phone != "" {
+					phoneRow(phone, &s.call, &s.wa)
+				}
+				phoneRow(helpPhone2, &s.call2, &s.wa2)
+				kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D {
+					return a.th.button(gtx, &s.mail, helpEmail, btnOpt{full: true, kind: btnOutline, icon: icMail})
+				}))
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 			})
 		},
@@ -186,6 +205,12 @@ func (a *App) layoutProfile(gtx C) D {
 	}
 	return a.page(gtx, "profile", items)
 }
+
+// Extra help contacts shown next to the admin-set support number.
+const (
+	helpPhone2 = "+91 89726 21425"
+	helpEmail  = "gcationadmin27@gmail.com"
+)
 
 func themeIcon(dark bool) *widget.Icon {
 	if dark {
