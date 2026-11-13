@@ -8,6 +8,7 @@ from psycopg import Connection
 
 from .config import settings
 from .db import get_db
+from .passwords import hash_password, verify_password  # noqa: F401 (re-exported)
 
 STUDENT_COOKIE = "gc_session"
 ADMIN_COOKIE = "gc_admin"
@@ -20,24 +21,12 @@ MAX_FAILURES = 10
 WINDOW = 15 * 60
 
 
-def hash_password(password: str) -> str:
-    salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1, dklen=32)
-    return f"scrypt${salt.hex()}${digest.hex()}"
-
-
-def verify_password(password: str, stored: str) -> bool:
-    try:
-        _, salt_hex, digest_hex = stored.split("$")
-    except ValueError:
+def check_admin_credentials(db: Connection, username: str, password: str) -> bool:
+    account = db.execute("SELECT username, password_hash FROM admin_account WHERE id = 1").fetchone()
+    if not account:
         return False
-    digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), n=2**14, r=8, p=1, dklen=32)
-    return hmac.compare_digest(digest.hex(), digest_hex)
-
-
-def check_admin_credentials(username: str, password: str) -> bool:
-    user_ok = hmac.compare_digest(username.encode(), settings.admin_username.encode())
-    pass_ok = hmac.compare_digest(password.encode(), settings.admin_password.encode())
+    user_ok = hmac.compare_digest(username.strip().encode(), account["username"].encode())
+    pass_ok = verify_password(password, account["password_hash"])  # always runs, so timing does not leak the username
     return user_ok and pass_ok
 
 
@@ -103,6 +92,14 @@ def end_other_sessions(db: Connection, request: Request, student_id: int) -> Non
     db.execute(
         "DELETE FROM sessions WHERE student_id = %s AND token_hash <> %s",
         (student_id, _token_hash(token) if token else ""),
+    )
+
+
+def end_other_admin_sessions(db: Connection, request: Request) -> None:
+    """Logs the admin out everywhere except this device (after the login details change)."""
+    token = request_token(request, "admin")
+    db.execute(
+        "DELETE FROM sessions WHERE role = 'admin' AND token_hash <> %s", (_token_hash(token) if token else "",)
     )
 
 

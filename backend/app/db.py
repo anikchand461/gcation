@@ -4,6 +4,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from .config import settings
+from .passwords import hash_password
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS students (
@@ -86,6 +87,27 @@ CREATE TABLE IF NOT EXISTS announcements (
     updated_at BIGINT NOT NULL
 );
 
+-- The single admin login. Seeded from .env; changed from the admin dashboard.
+CREATE TABLE IF NOT EXISTS admin_account (
+    id            SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    username      TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    updated_at    BIGINT NOT NULL
+);
+
+-- Course thumbnail uploaded by the admin, shown to students.
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS thumbnail BYTEA;
+-- Course highlights written by the admin, one per line (shown as a checklist).
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS features TEXT NOT NULL DEFAULT '';
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS thumbnail_type TEXT NOT NULL DEFAULT '';
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS thumbnail_updated_at BIGINT NOT NULL DEFAULT 0;
+
+-- Site settings edited from the admin dashboard (e.g. the support phone number).
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_enrollments_student ON enrollments(student_id, course_id);
 CREATE INDEX IF NOT EXISTS idx_claims_status ON payment_claims(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
@@ -130,6 +152,24 @@ def init_db() -> None:
             "ON CONFLICT (slot) DO NOTHING",
             (settings.upi_id, settings.upi_payee_name, now, settings.upi_payee_name, now),
         )
+        conn.execute(
+            "INSERT INTO app_settings (key, value) VALUES ('contact_phone', %s) ON CONFLICT (key) DO NOTHING",
+            (settings.contact_phone,),
+        )
+        if not conn.execute("SELECT 1 FROM admin_account").fetchone():
+            set_admin_from_env(conn)
+
+
+def set_admin_from_env(conn) -> None:
+    """Creates or resets the admin login from ADMIN_USERNAME / ADMIN_PASSWORD in .env."""
+    if not settings.admin_username or len(settings.admin_password) < 8:
+        raise RuntimeError("Set ADMIN_USERNAME and ADMIN_PASSWORD (at least 8 characters) in .env.")
+    conn.execute(
+        "INSERT INTO admin_account (id, username, password_hash, updated_at) VALUES (1, %s, %s, %s) "
+        "ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, password_hash = EXCLUDED.password_hash, "
+        "updated_at = EXCLUDED.updated_at",
+        (settings.admin_username, hash_password(settings.admin_password), int(time.time())),
+    )
 
 
 def close_db() -> None:

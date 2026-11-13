@@ -1,25 +1,59 @@
-# G-CATION
+<p align="center">
+  <img src="frontend/assets/logo.png" alt="G-CATION logo" width="160">
+</p>
 
-Online education platform for G-CATION. Students register, pay for a course by scanning a UPI QR code,
-and get access for a fixed period once the admin verifies the payment. No payment gateway is used.
+<h1 align="center">G-CATION</h1>
+
+<p align="center"><b>Learn. Grow. Succeed.</b><br>
+An online education platform where students join courses, pay with UPI and learn with live classes,
+community and updates, all in one place.</p>
+
+---
+
+G-CATION runs any kind of course: academic subjects, languages, skills, test preparation,
+bootcamps and more. Students register, choose a course, pay by scanning a UPI QR code, and get access
+for a fixed period once the admin verifies the payment. A receipt is created automatically for every
+approved payment. No payment gateway is needed.
 
 - **Backend:** FastAPI (Python) with a Neon Postgres database
-- **Frontend:** plain HTML, CSS and JavaScript (no build step)
+- **Frontend:** plain HTML, CSS and JavaScript (no build step), light and dark themes, works on phones and laptops
 
 ## Features
 
 **Students**
-- Register and log in with email and password; edit their profile and change their password
+- Register and log in; edit their profile and change their password
+- Browse courses with thumbnails, highlights, price and duration
 - Pay with a **primary** or **secondary** UPI QR (switch if one fails), or tap "Pay with UPI app" on phones
 - Send payment details (payer, app/bank, UTR) and call or WhatsApp the team to confirm
-- See active courses, days left, the classroom link, and updates (Google Meet, community, instructions)
-  with a NEW badge, unread count and optional browser alerts
+- Follow verification on a status timeline; the course unlocks as soon as it is approved
+- See active courses and days left, open the classroom, and read updates (Google Meet links,
+  community links, instructions) with a NEW badge, unread count and optional browser alerts
+- **Download a PDF receipt** for every approved payment
 
-**Admin** (one fixed login, no sign-up)
+**Admin** (one login, no sign-up)
 - Overview of what needs attention: payments to verify, courses expiring soon, recent payments
 - Students: search and filter, give access for any period, extend or revoke it, edit details, reset passwords
-- Payment notes, payment history with CSV export
-- Updates for paid students, both payment QR codes (upload an image or use a UPI ID), courses and prices
+- Payment notes, payment history with CSV export, and **PDF receipts** for every payment
+- Updates for paid students (all students or one course)
+- Both payment QR codes: upload an image or use a UPI ID, change any time
+- Courses: thumbnail, highlights, price and period; hide or show in one click; delete courses without payments
+- Change the admin username and password from **Admin account**
+
+**Everyone**
+- Light and dark themes (follows the device until you pick one with the sun/moon button)
+- Logo loading screen, smooth page transitions, layouts for phone and laptop
+
+## Receipts
+
+When the admin gives a student access (**Give access**), that payment gets a receipt automatically.
+It is built from the saved payment record with fixed rules (no AI or outside service) and contains:
+receipt number (`GC-<year>-<number>`), date, student details, course, access period, amount paid,
+payment details (bank, payer, UTR) and a PAID stamp, or ACCESS REVOKED if the access was taken back later.
+
+- Students: **Profile → Payment receipts**, or the **Receipt** button on a paid course
+- Admin: **Payments** page, or a student's **Access & payment history**
+
+The PDF uses standard fonts, so names should be written in English letters.
 
 ## Project structure
 
@@ -30,9 +64,14 @@ gcation/
 │   │   ├── main.py          App setup, CORS middleware (allowed frontend addresses)
 │   │   ├── config.py        Settings read from .env
 │   │   ├── db.py            Neon connection pool and table definitions
-│   │   ├── auth.py          Passwords, sessions, cookies and Bearer tokens
+│   │   ├── auth.py          Sessions, cookies and Bearer tokens
+│   │   ├── passwords.py     Password hashing
 │   │   ├── access.py        Course access rules
+│   │   ├── receipts.py      PDF receipts
+│   │   ├── images.py        Image upload checks (QR codes, thumbnails)
+│   │   ├── reset_admin.py   Resets the admin login from .env
 │   │   ├── schemas.py       Request validation
+│   │   ├── assets/logo.png  Logo used on receipts
 │   │   └── routers/         public.py, student.py, admin.py
 │   ├── API.md               Endpoint reference (also for the future Go + Gio app)
 │   ├── requirements.txt
@@ -43,7 +82,8 @@ gcation/
 │   ├── dashboard.html       Student app
 │   ├── admin-login.html     Admin login
 │   ├── admin.html           Admin app
-│   ├── css/style.css
+│   ├── assets/              logo.png (original), logo-mark.png (trimmed, used on the site)
+│   ├── css/style.css        Design system, light + dark themes
 │   ├── js/config.js         Backend address (API_BASE)
 │   └── js/                  common.js, dashboard.js, admin.js
 └── run.sh                   Starts backend + frontend together
@@ -63,9 +103,8 @@ You need **Python 3.11+** and a free **[Neon](https://neon.tech)** Postgres data
    | Key | What to put |
    |---|---|
    | `DATABASE_URL` | Neon dashboard → **Connect** → copy the connection string |
-   | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | The admin login (password at least 8 characters) |
-   | `UPI_ID`, `UPI_PAYEE_NAME` | Fills the Primary QR the first time only. Manage QRs later in Admin → Payment QR |
-   | `CONTACT_PHONE` | Number students call after paying |
+   | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | The first admin login (password at least 8 characters). After the first start, change it in Admin → Admin account |
+   | `UPI_ID`, `UPI_PAYEE_NAME`, `CONTACT_PHONE` | Optional. Only fill the first QR and support number on a brand-new database. Manage them later in Admin → Payment QR |
    | `COOKIE_SECURE` | `false` locally, `true` on HTTPS |
 
 3. Run it:
@@ -73,7 +112,7 @@ You need **Python 3.11+** and a free **[Neon](https://neon.tech)** Postgres data
    ./run.sh
    ```
    The first run creates the Python environment and installs packages. Tables are created in Neon
-   automatically on first start.
+   automatically on first start, and existing databases are upgraded in place.
 
    - Website: http://127.0.0.1:5500
    - Admin: http://127.0.0.1:5500/admin-login.html
@@ -97,6 +136,14 @@ python3 -m http.server 5500
 ```
 </details>
 
+## Forgot the admin password?
+
+On the server, in the `backend` folder, run:
+```bash
+.venv/bin/python -m app.reset_admin
+```
+It resets the admin login to `ADMIN_USERNAME` / `ADMIN_PASSWORD` from `backend/.env` and logs out all admin sessions.
+
 ## How payment works
 
 1. A student registers and opens a course from **My courses**.
@@ -104,8 +151,8 @@ python3 -m http.server 5500
 3. They send their payment details and call the admin.
 4. The admin checks the bank account, opens the payment note and clicks **Give access**,
    choosing the period (1, 3, 6, 12 months or any number of days).
-5. The course unlocks right away and locks again when the period ends. Renewals add time after
-   the current end date.
+5. The course unlocks right away, a receipt is created, and access ends automatically when the period
+   is over. Renewals add time after the current end date.
 
 ## How frontend and backend connect
 
@@ -131,6 +178,7 @@ They run as separate servers:
 - Passwords are hashed with scrypt. Repeated wrong logins are blocked for 15 minutes.
 - Every write request must be JSON, which blocks cross-site form attacks; CORS allows only the
   listed frontend addresses.
+- Students can only download their own receipts.
 
 ## Native app
 

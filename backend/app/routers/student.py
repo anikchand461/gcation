@@ -8,7 +8,9 @@ from psycopg import Connection
 
 from .. import auth
 from ..access import (
+    COURSE_COLUMNS,
     METHOD_COLUMNS,
+    get_setting,
     active_course_ids,
     get_course,
     load_access,
@@ -18,8 +20,8 @@ from ..access import (
     student_out,
     NO_ACCESS,
 )
-from ..config import settings
 from ..db import get_db
+from ..receipts import RECEIPT_SQL, load_grant, pdf_response, receipt_summary
 from ..schemas import ClaimIn, LoginIn, PasswordChangeIn, ProfileIn, QrSlot, RegisterIn
 
 router = APIRouter(prefix="/api")
@@ -88,7 +90,7 @@ def me(student: dict = Depends(auth.current_student), db: Connection = Depends(g
     courses = []
     # Open courses, plus hidden ones this student has (or had) access to.
     enrolled = [cid for (_, cid) in access]
-    for c in db.execute("SELECT * FROM courses WHERE is_active OR id = ANY(%s) ORDER BY id", (enrolled,)):
+    for c in db.execute(f"SELECT {COURSE_COLUMNS} FROM courses WHERE is_active OR id = ANY(%s) ORDER BY id", (enrolled,)):
         a = access.get((student["id"], c["id"]), NO_ACCESS)
         item = public_course(c) | {"access": a, "pending_claim": claims.get(c["id"]), "is_open": c["is_active"]}
         if a["status"] == "active":
@@ -102,10 +104,12 @@ def me(student: dict = Depends(auth.current_student), db: Connection = Depends(g
     ]
     announcements = _visible_announcements(db, active_course_ids(access, student["id"]))
     unread = sum(1 for a in announcements if a["created_at"] > student["announcements_seen_at"])
+    receipts = db.execute(RECEIPT_SQL + "WHERE e.student_id = %s ORDER BY e.granted_at DESC", (student["id"],)).fetchall()
     return {
         "student": student_out(student),
         "courses": courses,
-        "payment": {"contact_phone": settings.contact_phone, "methods": methods},
+        "receipts": [receipt_summary(r) for r in receipts],
+        "payment": {"contact_phone": get_setting(db, "contact_phone"), "methods": methods},
         "unread_announcements": unread,
     }
 
@@ -130,6 +134,11 @@ def change_password(
     )
     auth.end_other_sessions(db, request, student["id"])
     return {"ok": True}
+
+
+@router.get("/me/receipts/{enrollment_id}.pdf")
+def my_receipt(enrollment_id: int, student: dict = Depends(auth.current_student), db: Connection = Depends(get_db)):
+    return pdf_response(load_grant(db, enrollment_id, student["id"]), get_setting(db, "contact_phone"))
 
 
 @router.get("/me/announcements")

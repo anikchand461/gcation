@@ -47,15 +47,29 @@ def active_course_ids(access: dict[tuple[int, int], dict], student_id: int) -> l
     return [cid for (sid, cid), a in access.items() if sid == student_id and a["status"] == "active"]
 
 
+# Every course column except the thumbnail bytes (served separately as an image).
+COURSE_COLUMNS = (
+    "id, title, description, features, price, default_days, classroom_link, is_active, "
+    "thumbnail IS NOT NULL AS has_thumbnail, thumbnail_updated_at"
+)
+
+
 def get_course(db: Connection, course_id: int) -> dict:
-    course = db.execute("SELECT * FROM courses WHERE id = %s", (course_id,)).fetchone()
+    course = db.execute(f"SELECT {COURSE_COLUMNS} FROM courses WHERE id = %s", (course_id,)).fetchone()
     if not course:
         raise HTTPException(404, "Course not found.")
     return course
 
 
 def public_course(c: dict) -> dict:
-    return {k: c[k] for k in ("id", "title", "description", "price", "default_days")}
+    out = {k: c[k] for k in ("id", "title", "description", "price", "default_days", "has_thumbnail", "thumbnail_updated_at")}
+    out["features"] = [line.strip() for line in c["features"].splitlines() if line.strip()]
+    return out
+
+
+def get_setting(db: Connection, key: str) -> str:
+    row = db.execute("SELECT value FROM app_settings WHERE key = %s", (key,)).fetchone()
+    return row["value"] if row else ""
 
 
 def student_out(s: dict) -> dict:

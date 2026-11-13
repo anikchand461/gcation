@@ -6,13 +6,18 @@
 <title>G-CATION | Learn. Grow. Succeed.</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="assets/logo-mark.png">
+<link rel="apple-touch-icon" href="assets/logo-mark.png">
 <link rel="stylesheet" href="css/style.css">
+<script>try{var t=localStorage.getItem('gc-theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body>
+<div class="splash" id="splash" aria-hidden="true"><div class="splash-inner"><img src="assets/logo-mark.png" alt="" width="96" height="96"><div class="splash-name">G<span>-CATION</span></div><div class="splash-bar"><span></span></div></div></div>
 <header class="site-nav"><div class="wrap navin">
-  <a class="brand" href="/" aria-label="G-CATION home">G<span>-CATION</span></a>
+  <a class="brand" href="/" aria-label="G-CATION home"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span>-CATION</span></a>
   <nav class="links"><a href="#courses">Courses</a><a href="#how">How it works</a><a href="#founders">Founders</a><a href="#about">About</a></nav>
   <div class="navbtns" id="navBtns">
+    <button class="icon-btn theme-btn" type="button" data-theme-toggle></button>
     <a class="btn ghost sm hide-sm" href="admin-login.html" id="adminBtn"></a>
     <a class="btn outline sm hide-sm" href="login.html">Student login</a>
     <a class="btn primary sm" href="login.html#register">Enroll now</a>
@@ -40,7 +45,7 @@
     </div>
   </div>
   <div class="hero-panel">
-    <div class="orbit"><div class="orb-logo">G-CATION</div></div>
+    <div class="orbit"><div class="orb-logo"><img src="assets/logo-mark.png" alt="G-CATION logo" width="150" height="150"></div></div>
     <div class="hero-stats"><div><b>Live</b><small>Online classes</small></div><div><b>Practice</b><small>Speaking first</small></div><div><b>Support</b><small>Real mentors</small></div></div>
   </div>
 </div></section>
@@ -83,7 +88,7 @@
 </main>
 
 <footer class="footer"><div class="wrap footerin">
-  <div><b class="brand" style="font-size:1.2rem;color:#fff">G<span style="color:#d7b9ff">-CATION</span></b><br><small>Learn. Grow. Succeed.</small></div>
+  <div><b class="brand" style="font-size:1.2rem;color:#fff"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span style="color:#d7b9ff">-CATION</span></b><br><small>Learn. Grow. Succeed.</small></div>
   <small>© <span id="year"></span> G-CATION · <a href="login.html">Student login</a> · <a href="admin-login.html">Admin login</a></small>
 </div></footer>
 
@@ -115,15 +120,15 @@ api('/api/courses').then(courses => {
   if (!courses.length) { list.innerHTML = emptyState('book', 'New batches coming soon', 'Check back shortly for upcoming courses.'); return; }
   list.innerHTML = courses.map(c => `
     <div class="card course-feature">
-      <div class="course-art"><div class="course-art-inner"><div class="big">✦</div><h3>${esc(c.title)}</h3><div>Learn • Practise • Grow</div></div></div>
+      <div class="course-art ${thumbClass(c.id)} ${c.has_thumbnail ? 'has-img' : ''}">${c.has_thumbnail
+        ? `<img src="${thumbUrl(c)}" alt="${esc(c.title)}">`
+        : `<div class="course-art-inner"><div class="big">✦</div><h3>${esc(c.title)}</h3></div>`}</div>
       <div class="course-info">
         <span class="pill">${esc(durationLabel(c.default_days).toUpperCase())} ACCESS</span>
         <h2 style="font-size:1.6rem;margin:12px 0 6px">${esc(c.title)}</h2>
         <p class="sub" style="margin:0">${esc(c.description)}</p>
         <div class="price">${rupees(c.price)} <small>/ ${esc(durationLabel(c.default_days))}</small></div>
-        <ul class="features">
-          <li>${icon('checkCircle')} Live online classes</li><li>${icon('checkCircle')} Speaking practice &amp; community</li>
-          <li>${icon('checkCircle')} Class links and updates on your dashboard</li></ul>
+        ${c.features.length ? `<ul class="features">${c.features.map(f => `<li>${icon('checkCircle')} ${esc(f)}</li>`).join('')}</ul>` : '<div style="height:16px"></div>'}
         <a class="btn primary block lg" href="login.html#register">Enroll now</a>
         <p class="tiny muted center" style="margin:10px 0 0">Access starts after the G-CATION team verifies your payment.</p>
       </div>

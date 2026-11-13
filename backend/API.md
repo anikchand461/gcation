@@ -25,7 +25,8 @@ req.Header.Set("Authorization", "Bearer "+token)
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/` | Health check. |
-| GET | `/api/courses` | Open courses: `id, title, description, price, default_days`. |
+| GET | `/api/courses` | Open courses: `id, title, description, features[], price, default_days, has_thumbnail, thumbnail_updated_at`. |
+| GET | `/api/courses/{id}/thumbnail` | Course thumbnail image (when `has_thumbnail`); add `?v={thumbnail_updated_at}`. |
 | GET | `/api/payment-methods/{slot}/image` | Uploaded QR image (`slot` = `primary` or `secondary`). |
 
 ## Student
@@ -39,6 +40,7 @@ req.Header.Set("Authorization", "Bearer "+token)
 | PUT | `/api/me` | `{name, phone}` |
 | POST | `/api/me/password` | `{current_password, new_password}`. Logs out other devices. |
 | GET | `/api/me/qr/{course_id}.svg?slot=primary` | UPI QR (SVG) with the course amount filled in. |
+| GET | `/api/me/receipts/{enrollment_id}.pdf` | PDF receipt (own receipts only). `/api/me` lists them under `receipts`. |
 | POST | `/api/me/claims` | "I have paid" note: `{course_id, qr_slot, payer_name, method, amount, paid_on, reference}` |
 | GET | `/api/me/announcements` | `{seen_at, items[]}`. Only for students with active access. |
 | POST | `/api/me/announcements/seen` | Marks all updates as read. |
@@ -56,12 +58,16 @@ All need an admin session. Login: `POST /api/admin/login` with `{username, passw
 | Method | Path | Body / notes |
 |---|---|---|
 | POST | `/api/admin/logout` | |
+| GET/PUT | `/api/admin/settings` | `{contact_phone}`: the support number shown to students and on receipts. |
+| GET | `/api/admin/account` | Admin username and when it last changed. |
+| PUT | `/api/admin/account` | `{current_password, username, new_password}` (empty `new_password` keeps it). Logs out other admin devices. |
 | GET | `/api/admin/overview` | Counts and money totals. |
 | GET | `/api/admin/students?q=` | Search by name, email, phone or ID. |
 | GET | `/api/admin/students/{id}` | Detail: access per course, grants, payment notes. |
 | PUT | `/api/admin/students/{id}` | `{name, email, phone}` |
 | POST | `/api/admin/students/{id}/password` | `{new_password}`. Logs the student out everywhere. |
 | POST | `/api/admin/students/{id}/grant` | `{course_id, days, start: "after_current"\|"now", amount, note, claim_id?}` |
+| GET | `/api/admin/enrollments/{id}/receipt.pdf` | PDF receipt for any access grant. |
 | POST | `/api/admin/enrollments/{id}/revoke` | |
 | GET | `/api/admin/payments` | All grants with amounts. |
 | GET | `/api/admin/claims?status=pending` | Payment notes (`pending`, `approved`, `dismissed`). |
@@ -73,5 +79,8 @@ All need an admin session. Login: `POST /api/admin/login` with `{username, passw
 | GET | `/api/admin/payment-methods/{slot}/preview.svg` | QR made from the UPI ID. |
 | GET/POST | `/api/admin/announcements` | `{title, message, link_url, link_label, course_id?}` |
 | PUT/DELETE | `/api/admin/announcements/{id}` | |
-| GET/POST | `/api/admin/courses` | `{title, description, price, default_days, classroom_link, is_active}` |
-| PUT | `/api/admin/courses/{id}` | |
+| GET/POST | `/api/admin/courses` | `{title, description, features, price, default_days, classroom_link, is_active}` |
+| PUT | `/api/admin/courses/{id}` | Same body as POST; `features` is the highlights, one per line. |
+| DELETE | `/api/admin/courses/{id}` | Refused with `409` if the course has payment records (hide it instead). |
+| PUT | `/api/admin/courses/{id}/thumbnail` | `{data}`: base64 PNG/JPEG/WEBP, max 2 MB. |
+| DELETE | `/api/admin/courses/{id}/thumbnail` | |

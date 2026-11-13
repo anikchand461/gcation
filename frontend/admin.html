@@ -2,17 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#f7f3fd">
+<meta name="theme-color" content="#120b33">
 <meta name="robots" content="noindex">
 <title>Admin | G-CATION</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="assets/logo-mark.png">
+<link rel="apple-touch-icon" href="assets/logo-mark.png">
 <link rel="stylesheet" href="css/style.css">
+<script>try{var t=localStorage.getItem('gc-theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body>
+<div class="splash" id="splash" data-manual aria-hidden="true"><div class="splash-inner"><img src="assets/logo-mark.png" alt="" width="96" height="96"><div class="splash-name">G<span>-CATION</span></div><div class="splash-bar"><span></span></div></div></div>
 <div class="app">
   <aside class="sidebar" aria-label="Admin navigation">
-    <a class="brand" href="#/overview">G<span>-CATION</span><span class="tag">ADMIN</span></a>
+    <a class="brand" href="#/overview"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span>-CATION</span><span class="tag">ADMIN</span></a>
     <a class="nav-item" href="#/overview" data-route="overview" data-icon="home">Overview</a>
     <div class="nav-label">People &amp; money</div>
     <a class="nav-item" href="#/students" data-route="students" data-icon="users">Students</a>
@@ -22,7 +26,10 @@
     <a class="nav-item" href="#/updates" data-route="updates" data-icon="megaphone">Updates</a>
     <a class="nav-item" href="#/qr" data-route="qr" data-icon="qr">Payment QR</a>
     <a class="nav-item" href="#/courses" data-route="courses" data-icon="book">Courses</a>
+    <a class="nav-item" href="#/account" data-route="account" data-icon="key">Admin account</a>
     <div class="sidebar-foot">
+      <a class="user-card" href="#/account"><span class="avatar-sm" id="adminAvatar">A</span><div><b id="adminName">Admin</b><small>Administrator</small></div></a>
+      <button class="icon-btn theme-btn" type="button" data-theme-toggle="label"></button>
       <a class="btn outline block sm" href="/" target="_blank" rel="noopener" id="viewSite"></a>
       <button class="btn ghost block sm" id="logoutBtn"></button>
     </div>
@@ -32,8 +39,8 @@
   <div class="main">
     <header class="topbar">
       <button class="icon-btn" data-menu aria-label="Open menu" id="menuBtn"></button>
-      <a class="brand" href="#/overview">G<span>-CATION</span></a>
-      <a class="icon-btn" href="#/notes" id="topNotes" aria-label="Payment notes"></a>
+      <a class="brand" href="#/overview"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span>-CATION</span></a>
+      <div class="row" style="gap:8px"><button class="icon-btn theme-btn" type="button" data-theme-toggle></button><a class="icon-btn" href="#/notes" id="topNotes" aria-label="Payment notes"></a></div>
     </header>
     <div class="content"><div id="view">
       <div class="skeleton" style="height:90px;margin-bottom:18px"></div>

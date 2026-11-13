@@ -55,6 +55,7 @@ async function route() {
   markNav(name === 'enroll' ? 'courses' : name);
   if (!me) {
     if (await load()) VIEWS[name](...params);
+    hideSplash();
     return;
   }
   // Show cached data instantly, then refresh in the background so newly granted access,
@@ -105,7 +106,7 @@ function learnCard(c) {
     <div class="info">
       <h3>${esc(c.title)}</h3>
       <div class="muted small">Valid until ${fmtDate(a.until)}</div>
-      <div class="row" style="margin-top:10px">${classroomButton(c)}${a.days_left <= 14 ? `<a class="btn outline sm" href="#/enroll/${c.id}">Renew</a>` : ''}</div>
+      <div class="row" style="margin-top:10px">${classroomButton(c)}${latestReceipt(c.id) ? receiptButton(latestReceipt(c.id), 'ghost') : ''}${a.days_left <= 14 ? `<a class="btn outline sm" href="#/enroll/${c.id}">Renew</a>` : ''}</div>
     </div>
   </article>`;
 }
@@ -186,6 +187,7 @@ function viewHome() {
     </div>` : ''}
   `);
   wireCopy();
+  wireReceipts();
 }
 
 // ---------- Courses ----------
@@ -195,7 +197,8 @@ function courseCard(c) {
   let meta, actions;
   if (a.status === 'active') {
     meta = `Valid until <b>${fmtDate(a.until)}</b>`;
-    actions = classroomButton(c) + `<a class="btn ghost sm" href="#/enroll/${c.id}">Renew early</a>`;
+    const r = latestReceipt(c.id);
+    actions = classroomButton(c) + (r ? receiptButton(r, 'ghost') : '') + `<a class="btn ghost sm" href="#/enroll/${c.id}">Renew</a>`;
   } else if (a.status === 'scheduled') {
     meta = `Runs until <b>${fmtDate(a.until)}</b>`;
     actions = '';
@@ -207,11 +210,26 @@ function courseCard(c) {
     actions = `<a class="btn primary sm" href="#/enroll/${c.id}">${a.status === 'expired' ? 'Renew' : 'Enroll'} ${icon('arrowRight')}</a>`;
   }
   return `<article class="card course-card">
-    <div class="course-thumb">${icon('graduation')}</div>
+    ${courseThumb(c)}
     <div class="row between" style="align-items:flex-start"><h3>${esc(c.title)}</h3>${statusBadge(c)}</div>
     ${c.description ? `<p class="desc">${esc(c.description)}</p>` : ''}
+    ${a.status === 'none' && c.features.length ? `<ul class="mini-features">${c.features.slice(0, 3).map(f => `<li>${icon('check')} ${esc(f)}</li>`).join('')}</ul>` : ''}
     <div class="foot"><div class="small">${meta}</div><div class="row" style="gap:6px">${actions}</div></div>
   </article>`;
+}
+
+function latestReceipt(courseId) {
+  return me.receipts.find(r => r.course_id === courseId && !r.revoked_at);
+}
+
+function receiptButton(r, style = 'outline', label = 'Receipt') {
+  return `<button type="button" class="btn ${style} sm" data-receipt="${r.id}" data-no="${esc(r.receipt_no)}">${icon('download')} ${label}</button>`;
+}
+
+function wireReceipts(root = document) {
+  root.querySelectorAll('[data-receipt]').forEach(b => b.addEventListener('click', () =>
+    withLoading(b, () => downloadFile(`/api/me/receipts/${b.dataset.receipt}.pdf`, `G-CATION-receipt-${b.dataset.no}.pdf`))
+      .catch(e => showToast(e.message, 'error'))));
 }
 
 function viewCourses() {
@@ -226,6 +244,7 @@ function viewCourses() {
         : emptyState('sparkles', mine.length ? 'You are enrolled in everything' : 'New batches coming soon', mine.length ? 'New courses will show up here.' : 'Check back shortly for upcoming courses.')}
     </div>
   `);
+  wireReceipts();
 }
 
 // ---------- Checkout ----------
@@ -240,10 +259,11 @@ function viewEnroll(id) {
     <div class="checkout">
       <a class="back-link" href="#/courses">${icon('chevron')} Back to courses</a>
       <div class="card summary">
-        <div class="course-thumb">${icon('graduation')}</div>
+        ${courseThumb(c)}
         <div style="flex:1;min-width:0"><h2>${esc(c.title)}</h2><div class="muted small">${durationLabel(c.default_days)} access</div></div>
         <div class="right"><div class="price-tag">${rupees(c.price)}</div>${statusBadge(c)}</div>
       </div>
+      ${c.features.length ? `<ul class="mini-features card" style="padding:14px 18px;margin-top:10px">${c.features.map(f => `<li>${icon('check')} ${esc(f)}</li>`).join('')}</ul>` : ''}
       ${c.access.status === 'active' ? `<div class="notice info" style="margin-top:14px">${icon('info')}<div>You already have access until <b>${fmtDate(c.access.until)}</b>. Paying again adds ${durationLabel(c.default_days)} after that date.</div></div>` : ''}
       ${showStatus ? statusPanel(c) : `${wizardHead(step)}<div id="stepBody">${[null, stepPay, stepDetails, stepCall][step](c)}</div>`}
     </div>
@@ -508,6 +528,14 @@ function viewProfile() {
         </form>
       </div>
       <div class="stack">
+        <div class="card pad-lg" id="receipts">
+          <h3 class="card-title">${icon('download')} Payment receipts</h3>
+          <p class="card-sub">A receipt is created automatically when your payment is approved.</p>
+          ${me.receipts.length ? me.receipts.map(r => `<div class="receipt-row"><span class="ico">${icon('wallet')}</span>
+              <div class="grow"><b>${esc(r.course_title)}</b><span><span class="mono">${esc(r.receipt_no)}</span> · ${fmtDate(r.granted_at)} · ${rupees(r.amount_paid)}${r.revoked_at ? ' · access revoked' : ''}</span></div>
+              ${receiptButton(r, 'outline', 'PDF')}</div>`).join('')
+            : '<p class="muted small" style="margin:0">No receipts yet. Your first one appears here after your payment is verified.</p>'}
+        </div>
         <form class="card pad-lg" id="passwordForm" novalidate>
           <h3 class="card-title">${icon('key')} Change password</h3>
           <p class="card-sub">You stay logged in here. Other devices are logged out.</p>
@@ -528,6 +556,7 @@ function viewProfile() {
     </div>
   `);
   wireCopy();
+  wireReceipts();
   setupPasswordToggles();
   document.getElementById('logoutBtn2').addEventListener('click', logout);
 

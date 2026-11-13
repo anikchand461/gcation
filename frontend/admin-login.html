@@ -7,12 +7,16 @@
 <title>Admin Login | G-CATION</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="assets/logo-mark.png">
+<link rel="apple-touch-icon" href="assets/logo-mark.png">
 <link rel="stylesheet" href="css/style.css">
+<script>try{var t=localStorage.getItem('gc-theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body>
+<div class="splash" id="splash" aria-hidden="true"><div class="splash-inner"><img src="assets/logo-mark.png" alt="" width="96" height="96"><div class="splash-name">G<span>-CATION</span></div><div class="splash-bar"><span></span></div></div></div>
 <div class="auth">
   <aside class="auth-side">
-    <a class="brand" href="/">G<span>-CATION</span> <span class="tag" style="background:#fff;color:var(--ink)">ADMIN</span></a>
+    <a class="brand" href="/"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span>-CATION</span> <span class="tag" style="background:#fff;color:#140f2e">ADMIN</span></a>
     <div>
       <h2>Run G-CATION from one dashboard.</h2>
       <p>Verify payments, give course access, share class links and keep your QR codes up to date.</p>
@@ -23,8 +27,8 @@
 
   <main class="auth-main">
     <div class="top">
-      <a class="brand mobile-brand" href="/">G<span>-CATION</span></a>
-      <a class="btn ghost sm" href="/" style="margin-left:auto">← Home</a>
+      <a class="brand mobile-brand" href="/"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span>-CATION</span></a>
+      <div class="row" style="margin-left:auto;gap:8px"><button class="icon-btn theme-btn" type="button" data-theme-toggle></button><a class="btn ghost sm" href="/">← Home</a></div>
     </div>
     <form class="card auth-box" id="form" novalidate>
       <span class="kicker" id="kicker"></span>

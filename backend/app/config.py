@@ -15,7 +15,8 @@ class Settings:
     # Neon (or any Postgres) connection string. Keep it secret: backend only.
     database_url = os.getenv("DATABASE_URL", "").strip()
 
-    # Fixed admin login. There is no admin registration; change these in .env.
+    # First admin login, copied into the database on first start (or by `python -m app.reset_admin`).
+    # After that, change the username and password from Admin → Admin account.
     admin_username = os.getenv("ADMIN_USERNAME", "").strip()
     admin_password = os.getenv("ADMIN_PASSWORD", "")
 
@@ -24,7 +25,7 @@ class Settings:
     upi_id = os.getenv("UPI_ID", "").strip()
     upi_payee_name = os.getenv("UPI_PAYEE_NAME", "G-CATION").strip()
 
-    # Number students are told to call after paying.
+    # Support phone used only to fill the setting the first time; change it in Admin → Payment QR.
     contact_phone = os.getenv("CONTACT_PHONE", "").strip()
 
     # Set to true once the site is served over HTTPS.
@@ -35,7 +36,3 @@ settings = Settings()
 
 if not settings.database_url:
     raise RuntimeError("Set DATABASE_URL in .env to your Neon Postgres connection string before starting.")
-if not settings.admin_username or len(settings.admin_password) < 8:
-    raise RuntimeError(
-        "Set ADMIN_USERNAME and ADMIN_PASSWORD (at least 8 characters) in .env before starting."
-    )

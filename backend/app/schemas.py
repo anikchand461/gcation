@@ -51,6 +51,39 @@ class AdminLoginIn(BaseModel):
     client: Client = "web"
 
 
+class AdminAccountIn(BaseModel):
+    current_password: str = Field(max_length=128)
+    username: str = Field(min_length=3, max_length=60)
+    new_password: str = Field(default="", max_length=128)  # empty keeps the current password
+
+    @field_validator("username")
+    @classmethod
+    def clean_username(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 3 or any(ch.isspace() for ch in v):
+            raise ValueError("Username needs at least 3 characters and no spaces.")
+        return v
+
+    @field_validator("new_password")
+    @classmethod
+    def strong_enough(cls, v: str) -> str:
+        if v and len(v) < 8:
+            raise ValueError("New password must be at least 8 characters.")
+        return v
+
+
+class SettingsIn(BaseModel):
+    contact_phone: str = Field(default="", max_length=20)
+
+    @field_validator("contact_phone")
+    @classmethod
+    def phone_chars(cls, v: str) -> str:
+        v = v.strip()
+        if v and not re.fullmatch(r"[0-9+\-() ]{6,20}", v):
+            raise ValueError("Enter a phone number using digits, spaces, + - ( ) only.")
+        return v
+
+
 class ProfileIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     phone: str = Field(default="", max_length=20)
@@ -104,8 +137,19 @@ class GrantIn(BaseModel):
 class CourseIn(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=1000)
+    features: str = Field(default="", max_length=1500)  # highlights, one per line
     price: float = Field(ge=0, le=10_000_000)
     default_days: int = Field(ge=1, le=3650)
+
+    @field_validator("features")
+    @classmethod
+    def tidy_features(cls, v: str) -> str:
+        lines = [line.strip() for line in v.splitlines() if line.strip()]
+        if len(lines) > 12:
+            raise ValueError("Keep it to 12 highlights or fewer.")
+        if any(len(line) > 120 for line in lines):
+            raise ValueError("Each highlight can be at most 120 characters.")
+        return "\n".join(lines)
     classroom_link: str = Field(default="", max_length=500)
     is_active: bool = True
 
@@ -137,6 +181,7 @@ class PaymentMethodIn(BaseModel):
 
 class QrImageIn(BaseModel):
     # Base64 image data (PNG, JPEG or WEBP), with or without a data: URL prefix.
+    # Used for both payment QR images and course thumbnails.
     data: str = Field(min_length=10, max_length=3_000_000)
 
 

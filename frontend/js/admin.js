@@ -2,7 +2,7 @@
 
 const DAY = 86400;
 const PRESETS = [[30, '1 month'], [90, '3 months'], [180, '6 months'], [365, '1 year']];
-const VIEWS = { overview: viewOverview, students: viewStudents, notes: viewNotes, payments: viewPayments, updates: viewUpdates, qr: viewQr, courses: viewCourses };
+const VIEWS = { overview: viewOverview, students: viewStudents, notes: viewNotes, payments: viewPayments, updates: viewUpdates, qr: viewQr, courses: viewCourses, account: viewAccount };
 
 let students = [];
 let studentFilter = 'all';
@@ -296,7 +296,8 @@ function renderDrawer() {
         <td data-label="Course" class="hide-sm">${esc(e.course_title)}</td>
         <td data-label="Amount" class="num">${rupees(e.amount_paid)}</td>
         <td data-label="Period" class="small"><span class="strike">${fmtDate(e.start_at)} → ${fmtDate(e.end_at)}</span></td>
-        <td class="right actions">${e.revoked_at ? `<span class="tiny">Revoked ${fmtDate(e.revoked_at)}</span>`
+        <td class="right actions" style="white-space:nowrap">${adminReceiptButton(e)}
+          ${e.revoked_at ? `<span class="tiny">Revoked ${fmtDate(e.revoked_at)}</span>`
           : e.end_at > t ? `<button class="btn danger sm" data-revoke="${e.id}">Revoke</button>` : ''}</td></tr>`).join('')}</tbody>
     </table></div>` : '<p class="muted small">No access given yet.</p>'}
 
@@ -325,6 +326,19 @@ function renderDrawer() {
   wireGrantForm(pendingClaims);
   wireAccountForms();
   document.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', () => revoke(Number(b.dataset.revoke))));
+  wireAdminReceipts(document.getElementById('drawerBody'));
+}
+
+function adminReceiptButton(e) {
+  return `<button type="button" class="btn outline sm" data-receipt="${e.id}" data-no="${esc(e.receipt_no)}" title="Download receipt ${esc(e.receipt_no)}">${icon('download')} Receipt</button>`;
+}
+
+function wireAdminReceipts(root) {
+  root.querySelectorAll('[data-receipt]').forEach(b => b.addEventListener('click', ev => {
+    ev.stopPropagation();
+    withLoading(b, () => downloadFile(`/api/admin/enrollments/${b.dataset.receipt}/receipt.pdf`, `G-CATION-receipt-${b.dataset.no}.pdf`))
+      .catch(e => showToast(e.message, 'error'));
+  }));
 }
 
 function wireGrantForm(pendingClaims) {
@@ -490,7 +504,7 @@ async function viewPayments() {
       <div class="stat-tile"><span class="stat-ico g">${icon('list')}</span><span><small>Records</small><b>${list.length}</b></span></div>
     </div>
     ${list.length ? `<div class="card table-wrap"><table class="responsive">
-      <thead><tr><th>Student</th><th>Course</th><th class="num">Amount</th><th>Access period</th><th>Notes</th><th>Status</th></tr></thead>
+      <thead><tr><th>Student</th><th>Course</th><th class="num">Amount</th><th>Access period</th><th>Notes</th><th>Status</th><th>Receipt</th></tr></thead>
       <tbody>${list.map(p => {
         const status = p.revoked_at ? badge('expired', 'Revoked') : p.end_at <= t ? badge('none', 'Ended') : p.start_at > t ? badge('scheduled') : badge('active');
         return `<tr class="click" data-id="${p.student_id}">
@@ -498,19 +512,21 @@ async function viewPayments() {
           <td data-label="Course">${esc(p.course_title)}</td><td data-label="Amount" class="num strong">${rupees(p.amount_paid)}</td>
           <td data-label="Period" class="small">${fmtDate(p.start_at)} → ${fmtDate(p.end_at)}</td>
           <td data-label="Notes" class="small hide-sm">${esc(p.note) || '—'}</td><td data-label="Status">${status}</td>
+          <td class="actions">${adminReceiptButton(p)}</td>
         </tr>`;
       }).join('')}</tbody></table></div>`
       : emptyState('wallet', 'No payments yet', 'When you give a student access, the payment is recorded here.')}
   `);
   document.getElementById('csvBtn').addEventListener('click', downloadCsv);
   document.querySelectorAll('#view tr.click').forEach(tr => tr.addEventListener('click', () => openStudent(Number(tr.dataset.id))));
+  wireAdminReceipts(document.getElementById('view'));
 }
 
 function downloadCsv() {
   const iso = ts => new Date(ts * 1000).toISOString().slice(0, 10);
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [['Given on', 'Student ID', 'Student', 'Email', 'Course', 'Amount', 'Start', 'End', 'Notes', 'Revoked on']]
-    .concat(payments.map(p => [iso(p.granted_at), p.student_id, p.student_name, p.student_email, p.course_title,
+  const lines = [['Receipt no', 'Given on', 'Student ID', 'Student', 'Email', 'Course', 'Amount', 'Start', 'End', 'Notes', 'Revoked on']]
+    .concat(payments.map(p => [p.receipt_no, iso(p.granted_at), p.student_id, p.student_name, p.student_email, p.course_title,
       p.amount_paid, iso(p.start_at), iso(p.end_at), p.note, p.revoked_at ? iso(p.revoked_at) : '']));
   const blob = new Blob([lines.map(l => l.map(cell).join(',')).join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');
@@ -686,13 +702,36 @@ async function loadAnnouncements() {
 
 async function viewQr() {
   setView(head('Settings', 'Payment QR', 'Students see the Primary QR first and can switch to the Secondary QR if it fails.') + skeleton(360));
-  const methods = await guarded(() => api('/api/admin/payment-methods'));
+  const [methods, site] = await guarded(() => Promise.all([api('/api/admin/payment-methods'), api('/api/admin/settings')]));
   setView(`
     ${head('Settings', 'Payment QR', 'Students see the Primary QR first and can switch to the Secondary QR if it fails.')}
     <div class="notice info" style="margin-bottom:16px">${icon('info')}<div>Upload your QR image, or just enter a UPI ID and the site makes a QR with the course amount filled in. If you upload an image, students see that image.</div></div>
+    <form class="card pad-lg" id="supportForm" novalidate style="margin-bottom:16px">
+      <h3 class="card-title">${icon('phone')} Support phone number</h3>
+      <p class="card-sub">Students are asked to call or WhatsApp this number after paying. It is also printed on receipts.</p>
+      <div class="row" style="align-items:flex-end">
+        <div class="field" style="flex:1;min-width:220px;margin:0"><label for="supPhone">Phone number</label>
+          <input id="supPhone" name="contact_phone" type="tel" maxlength="20" placeholder="+91 98765 43210" value="${esc(site.contact_phone)}"></div>
+        <button class="btn primary" type="submit">${icon('check')} Save</button>
+      </div>
+      <div class="error"></div>
+    </form>
     <div class="stack">${methods.map(qrCard).join('')}</div>
   `);
   document.querySelectorAll('form[data-slot]').forEach(wireQrForm);
+  const sf = document.getElementById('supportForm');
+  sf.addEventListener('submit', async e => {
+    e.preventDefault();
+    const err = sf.querySelector('.error');
+    showError(err, '');
+    try {
+      await withLoading(sf.querySelector('button[type=submit]'), () => api('/api/admin/settings', { method: 'PUT', body: { contact_phone: sf.contact_phone.value } }));
+      showToast('Support number saved. Students see it right away.', 'success');
+    } catch (ex) {
+      if (ex.status === 401) return location.replace('admin-login.html');
+      showError(err, ex.message);
+    }
+  });
 }
 
 function qrCard(m) {
@@ -800,8 +839,20 @@ function prepareImage(file) {
 
 // ---------- Courses ----------
 
+function thumbBlock(c = {}) {
+  return `<div data-thumb-preview>${c.id ? courseThumb(c) : `<div class="course-thumb t0">${icon('graduation')}</div>`}</div>
+    <div>
+      <span class="label">Thumbnail <span class="faint">(optional)</span></span>
+      <label class="dropzone" style="margin-top:6px">${icon('upload')} <span class="strong">${c.has_thumbnail ? 'Replace image' : 'Upload image'}</span>
+        <div class="tiny">PNG or JPG · a wide picture works best · shown on the website and to students</div>
+        <input type="file" accept="image/png,image/jpeg,image/webp" hidden data-thumb-input></label>
+      ${c.has_thumbnail ? `<button type="button" class="btn ghost sm" style="margin-top:6px" data-thumb-remove>${icon('trash')} Remove image</button>` : ''}
+    </div>`;
+}
+
 function courseFields(c = {}) {
   return `
+    <div class="thumb-edit" data-thumb>${thumbBlock(c)}</div>
     <div class="row2">
       <div class="field"><label>Title</label><input name="title" maxlength="120" required value="${esc(c.title)}"></div>
       <div class="field"><label>Status</label><select name="is_active">
@@ -809,6 +860,9 @@ function courseFields(c = {}) {
         <option value="0" ${c.is_active === false ? 'selected' : ''}>Hidden</option></select></div>
     </div>
     <div class="field"><label>Description</label><textarea name="description" maxlength="1000">${esc(c.description)}</textarea></div>
+    <div class="field"><label>Highlights <span class="faint">(optional, one per line)</span></label>
+      <textarea name="features" maxlength="1500" placeholder="Live online classes&#10;Weekly speaking practice&#10;Certificate on completion">${esc(c.features)}</textarea>
+      <small>Shown as a checklist on the website and to students. Leave empty to show none.</small></div>
     <div class="row2">
       <div class="field"><label>Price (₹)</label><input name="price" type="number" min="0" step="0.01" required value="${c.price != null ? Number(c.price) : ''}"></div>
       <div class="field"><label>Default access period (days)</label><input name="default_days" type="number" min="1" max="3650" required value="${c.default_days ?? 365}"></div>
@@ -821,21 +875,28 @@ function courseFields(c = {}) {
 
 function readCourse(f) {
   return {
-    title: f.title.value, description: f.description.value, price: Number(f.price.value),
+    title: f.title.value, description: f.description.value, features: f.features.value, price: Number(f.price.value),
     default_days: Number(f.default_days.value), classroom_link: f.classroom_link.value, is_active: f.is_active.value === '1',
   };
 }
 
 async function viewCourses() {
-  setView(head('Settings', 'Courses', 'Price, access period and classroom link for each course.') + skeleton(360));
+  setView(head('Settings', 'Courses', 'Thumbnail, price, access period and classroom link for each course.') + skeleton(360));
   courses = await guarded(() => api('/api/admin/courses'));
   setView(`
-    ${head('Settings', 'Courses', 'Price, access period and classroom link for each course.')}
+    ${head('Settings', 'Courses', 'Thumbnail, price, access period and classroom link for each course.')}
     <div class="stack">
       ${courses.map(c => `<details class="fold card" style="padding:0" ${courses.length === 1 ? 'open' : ''}>
-        <summary><span class="row" style="gap:10px">${icon('book')} ${esc(c.title)} <span class="muted small" style="font-weight:600">${rupees(c.price)} · ${c.default_days} days</span>
+        <summary><span class="row" style="gap:10px">${c.has_thumbnail ? `<img src="${thumbUrl(c)}" alt="" style="width:34px;height:34px;border-radius:9px;object-fit:cover">` : icon('book')} ${esc(c.title)} <span class="muted small" style="font-weight:600">${rupees(c.price)} · ${c.default_days} days</span>
           ${c.is_active ? badge('active', 'Open') : badge('none', 'Hidden')}</span></summary>
-        <div class="fold-body"><form data-id="${c.id}" novalidate>${courseFields(c)}<button class="btn primary" type="submit">${icon('check')} Save changes</button></form></div>
+        <div class="fold-body">
+          ${c.is_active ? '' : `<div class="notice warn" style="margin-bottom:6px;align-items:center">${icon('eyeOff')}<div style="flex:1">This course is <b>hidden</b>. It is not on the website and new students cannot enroll. Students who already paid keep their access.</div>
+            <button class="btn primary sm" type="button" data-visibility="${c.id}">${icon('eye')} Show on website</button></div>`}
+          <form data-id="${c.id}" novalidate>${courseFields(c)}
+          <div class="row between"><button class="btn primary" type="submit">${icon('check')} Save changes</button>
+          <div class="row" style="gap:6px">
+            ${c.is_active ? `<button class="btn outline sm" type="button" data-visibility="${c.id}">${icon('eyeOff')} Hide from website</button>` : ''}
+            <button class="btn danger sm" type="button" data-delete="${c.id}">${icon('trash')} Delete course</button></div></div></form></div>
       </details>`).join('')}
       <details class="fold card" style="padding:0">
         <summary><span class="row" style="gap:10px;color:var(--purple)">${icon('plus')} Add a new course</span></summary>
@@ -843,11 +904,15 @@ async function viewCourses() {
       </details>
     </div>
   `);
+  let newThumb = null; // image chosen for a course that does not exist yet
   const save = async (f, method, path, done) => {
     const err = f.querySelector('.error');
     showError(err, '');
     try {
-      await withLoading(f.querySelector('button[type=submit]'), () => api(path, { method, body: readCourse(f) }));
+      await withLoading(f.querySelector('button[type=submit]'), async () => {
+        const res = await api(path, { method, body: readCourse(f) });
+        if (method === 'POST' && newThumb) await api(`/api/admin/courses/${res.id}/thumbnail`, { method: 'PUT', body: { data: newThumb } });
+      });
       showToast(done, 'success');
       viewCourses();
     } catch (ex) {
@@ -858,6 +923,150 @@ async function viewCourses() {
   document.querySelectorAll('form[data-id]').forEach(f => f.addEventListener('submit', e => { e.preventDefault(); save(f, 'PUT', '/api/admin/courses/' + f.dataset.id, 'Course saved.'); }));
   const nf = document.getElementById('newCourse');
   nf.addEventListener('submit', e => { e.preventDefault(); save(nf, 'POST', '/api/admin/courses', 'Course added.'); });
+  document.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => deleteCourse(courses.find(c => c.id === Number(b.dataset.delete)))));
+  document.querySelectorAll('[data-visibility]').forEach(b => b.addEventListener('click', () => setCourseVisible(courses.find(c => c.id === Number(b.dataset.visibility)))));
+  document.querySelectorAll('form[data-id]').forEach(f => wireThumb(f, courses.find(c => c.id === Number(f.dataset.id))));
+  wireThumb(nf, null, data => { newThumb = data; });
+}
+
+// Thumbnail picker. Existing courses upload right away (other unsaved edits in the form are kept);
+// a new course keeps the image until the course is created.
+function wireThumb(form, course, onPick) {
+  const box = form.querySelector('[data-thumb]');
+  const err = form.querySelector('.error');
+  const rewire = () => {
+    const input = box.querySelector('[data-thumb-input]'), drop = input.closest('.dropzone');
+    input.addEventListener('change', () => input.files[0] && pick(input.files[0]));
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); });
+    const remove = box.querySelector('[data-thumb-remove]');
+    if (remove) remove.addEventListener('click', async () => {
+      if (!await confirmDialog({ title: 'Remove thumbnail?', message: 'The course goes back to its colour gradient.', confirmText: 'Remove', danger: true })) return;
+      update(await guarded(() => api(`/api/admin/courses/${course.id}/thumbnail`, { method: 'DELETE' })));
+      showToast('Thumbnail removed.', 'success');
+    });
+  };
+  const update = c => {
+    Object.assign(course, c);
+    box.innerHTML = thumbBlock(course);
+    rewire();
+  };
+  const pick = async file => {
+    showError(err, '');
+    if (!file.type.startsWith('image/')) { showError(err, 'Choose an image file (PNG or JPG).'); return; }
+    try {
+      const data = await prepareImage(file);
+      if (!course) {
+        onPick(data);
+        box.querySelector('[data-thumb-preview]').innerHTML = `<div class="course-thumb"><img src="${data}" alt=""></div>`;
+        return;
+      }
+      update(await api(`/api/admin/courses/${course.id}/thumbnail`, { method: 'PUT', body: { data } }));
+      showToast('Thumbnail updated. Students see it right away.', 'success');
+    } catch (ex) {
+      if (ex.status === 401) return location.replace('admin-login.html');
+      showError(err, ex.message);
+    }
+  };
+  rewire();
+}
+
+async function deleteCourse(c) {
+  if (!await confirmDialog({
+    title: `Delete "${c.title}"?`,
+    message: 'The course and its updates are removed for good. Students will no longer see it.',
+    confirmText: 'Delete course', danger: true,
+  })) return;
+  try {
+    await api(`/api/admin/courses/${c.id}`, { method: 'DELETE' });
+    showToast('Course deleted.', 'success');
+    viewCourses();
+  } catch (ex) {
+    if (ex.status === 401) return location.replace('admin-login.html');
+    if (ex.status !== 409) { showToast(ex.message, 'error'); return; }
+    // Courses with payment records are hidden instead, so payment history is kept.
+    if (!await confirmDialog({ title: 'Hide this course instead?', message: ex.message + ' Hidden courses disappear from the website, but paid students keep their access.', confirmText: 'Hide course' })) return;
+    await setCourseVisible(c, false, false); // already confirmed above
+  }
+}
+
+// Shows or hides a course on the website, keeping its saved details. With no `show`, it flips the current state.
+async function setCourseVisible(c, show = !c.is_active, ask = true) {
+  if (ask && !show && c.is_active && !await confirmDialog({
+    title: `Hide "${c.title}"?`,
+    message: 'It disappears from the website and new students cannot enroll. Students who already paid keep their access. You can show it again any time.',
+    confirmText: 'Hide course',
+  })) return;
+  await guarded(() => api(`/api/admin/courses/${c.id}`, { method: 'PUT', body: {
+    title: c.title, description: c.description, features: c.features, price: Number(c.price), default_days: c.default_days,
+    classroom_link: c.classroom_link, is_active: show,
+  }}));
+  showToast(show ? 'Course is visible on the website again.' : 'Course hidden from the website.', 'success');
+  viewCourses();
+}
+
+// ---------- Admin account ----------
+
+function showAdminName(username) {
+  document.getElementById('adminName').textContent = username;
+  document.getElementById('adminAvatar').textContent = initials(username);
+}
+
+async function viewAccount() {
+  setView(head('Settings', 'Admin account', 'Change the username and password you use to log in here.') + skeleton(320));
+  const acc = await guarded(() => api('/api/admin/account'));
+  showAdminName(acc.username);
+  setView(`
+    ${head('Settings', 'Admin account', 'Change the username and password you use to log in here.')}
+    <div class="grid-2" style="align-items:start">
+      <form class="card pad-lg" id="accountForm" novalidate>
+        <h3 class="card-title">${icon('key')} Login details</h3>
+        <p class="card-sub">Other devices are logged out after a change. This device stays logged in.</p>
+        <div class="field"><label for="accUser">Username</label><input id="accUser" name="username" maxlength="60" autocomplete="username" value="${esc(acc.username)}" required></div>
+        <div class="field"><label for="accNew">New password <span class="faint">(leave empty to keep the current one)</span></label><input id="accNew" name="new_password" type="password" autocomplete="new-password"></div>
+        <div class="field"><label for="accConfirm">Confirm new password</label><input id="accConfirm" name="confirm" type="password" autocomplete="new-password"></div>
+        <hr class="divider">
+        <div class="field"><label for="accCur">Current password</label><input id="accCur" name="current_password" type="password" autocomplete="current-password" required><small>Needed to save any change.</small></div>
+        <div class="error"></div>
+        <button class="btn primary" type="submit">${icon('check')} Save login details</button>
+      </form>
+      <div class="stack">
+        <div class="card pad-lg">
+          <div class="row" style="gap:14px"><span class="avatar-sm avatar-lg">${esc(initials(acc.username))}</span>
+            <div><div class="tiny faint strong">SIGNED IN AS</div><h2 style="margin:2px 0 0;font-size:1.3rem">${esc(acc.username)}</h2>
+              <div class="muted small">Last changed ${fmtDateTime(acc.updated_at)}</div></div></div>
+        </div>
+        <div class="notice info">${icon('info')}<div><b>Forgot the admin password?</b> On the server, run
+          <span class="mono">.venv/bin/python -m app.reset_admin</span> in the backend folder. It resets the login to
+          ADMIN_USERNAME and ADMIN_PASSWORD from <span class="mono">backend/.env</span>.</div></div>
+      </div>
+    </div>
+  `);
+  setupPasswordToggles();
+  const f = document.getElementById('accountForm');
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const err = f.querySelector('.error');
+    const username = f.username.value.trim(), pw = f.new_password.value;
+    const problem = username.length < 3 || /\s/.test(username) ? 'Username needs at least 3 characters and no spaces.'
+      : pw && pw.length < 8 ? 'New password must be at least 8 characters.'
+      : pw !== f.confirm.value ? 'The new passwords do not match.'
+      : !f.current_password.value ? 'Enter your current password to save.' : '';
+    showError(err, problem);
+    if (problem) return;
+    try {
+      const res = await withLoading(f.querySelector('button[type=submit]'), () => api('/api/admin/account', { method: 'PUT', body: {
+        username, new_password: pw, current_password: f.current_password.value,
+      }}));
+      showToast(pw ? 'Username and password updated.' : 'Username updated.', 'success');
+      showAdminName(res.username);
+      viewAccount();
+    } catch (ex) {
+      if (ex.status === 401) return location.replace('admin-login.html');
+      showError(err, ex.message);
+    }
+  });
 }
 
 // ---------- Boot ----------
@@ -873,6 +1082,7 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 setupSidebarToggle();
 window.addEventListener('hashchange', route);
 // Confirms the admin is logged in (redirects to login if not), then shows the page.
-guarded(() => api('/api/admin/overview')).then(o => { setPendingCount(o.pending_claims); route(); });
+guarded(() => api('/api/admin/overview')).then(o => { setPendingCount(o.pending_claims); route(); hideSplash(); });
+api('/api/admin/account').then(a => showAdminName(a.username)).catch(() => {});
 // Keep the "Payment notes" count fresh while the dashboard stays open.
 setInterval(() => { if (!document.hidden) refreshCounts(); }, 60000);

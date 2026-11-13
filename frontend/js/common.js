@@ -122,6 +122,8 @@ const ICONS = {
   smartphone: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>',
   hourglass: '<path d="M5 22h14M5 2h14"/><path d="M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22"/><path d="M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
   arrowRight: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
   home: '<path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2z"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -276,7 +278,88 @@ function emptyState(ic, title, text, action = '') {
   return `<div class="card empty-state"><div class="ico">${icon(ic, 'xl')}</div><h3>${esc(title)}</h3><p>${esc(text)}</p>${action}</div>`;
 }
 
+// One of six gradients per course, so each course has its own colour.
+function thumbClass(id) {
+  return 't' + (Number(id) % 6);
+}
+
+// URL of a course's uploaded thumbnail ('' when none). ?v= changes when the image is replaced.
+function thumbUrl(c) {
+  return c.has_thumbnail ? `${API_BASE}/api/courses/${c.id}/thumbnail?v=${c.thumbnail_updated_at}` : '';
+}
+
+// Course picture: the uploaded thumbnail, or the course's gradient with an icon.
+function courseThumb(c, extra = '') {
+  const url = thumbUrl(c);
+  return `<div class="course-thumb ${thumbClass(c.id)} ${extra}">${url ? `<img src="${url}" alt="" loading="lazy">` : icon('graduation')}</div>`;
+}
+
+// Downloads a file from the API (uses the login cookie), e.g. a receipt PDF.
+async function downloadFile(path, filename) {
+  const res = await fetch(API_BASE + path, { credentials: 'include' });
+  if (!res.ok) {
+    let msg = 'Could not download the file.';
+    try { msg = errorText(await res.json()) || msg; } catch { /* not JSON */ }
+    const err = new Error(msg); err.status = res.status; throw err;
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Fades out the logo loading screen. App pages call this after their first data is on screen;
+// other pages hide it once loaded. It always shows for at least ~0.6 s so it does not flicker.
+function hideSplash() {
+  const splash = document.getElementById('splash');
+  if (!splash || splash.classList.contains('hide')) return;
+  setTimeout(() => {
+    splash.classList.add('hide');
+    setTimeout(() => splash.remove(), 500);
+  }, Math.max(0, 600 - performance.now()));
+}
+(() => {
+  const splash = document.getElementById('splash');
+  if (!splash) return;
+  if (!splash.hasAttribute('data-manual')) window.addEventListener('load', hideSplash);
+  setTimeout(hideSplash, 8000); // never leave the screen covered if something fails
+})();
+
 function greeting() {
   const h = new Date().getHours();
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
+
+// ---------- Light / dark theme ----------
+// The saved choice is applied by a tiny script in each page's <head> (no flash on load).
+// With no saved choice the site follows the device setting.
+
+const THEME_KEY = 'gc-theme';
+
+function currentTheme() {
+  return document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+
+function paintThemeButtons() {
+  const dark = currentTheme() === 'dark';
+  document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
+    btn.innerHTML = icon(dark ? 'sun' : 'moon') + (btn.dataset.themeToggle === 'label' ? ` ${dark ? 'Light' : 'Dark'} mode` : '');
+    btn.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+    btn.title = btn.getAttribute('aria-label');
+  });
+}
+
+function setTheme(theme) {
+  const root = document.documentElement;
+  root.classList.add('theme-anim');
+  root.dataset.theme = theme;
+  try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode: still switches for this page */ }
+  paintThemeButtons();
+  setTimeout(() => root.classList.remove('theme-anim'), 450);
+}
+
+document.querySelectorAll('[data-theme-toggle]').forEach(btn =>
+  btn.addEventListener('click', () => setTheme(currentTheme() === 'dark' ? 'light' : 'dark')));
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintThemeButtons);
+paintThemeButtons();
