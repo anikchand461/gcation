@@ -15,7 +15,7 @@
 <div class="splash" id="splash" aria-hidden="true"><div class="splash-inner"><img src="assets/logo-mark.png" alt="" width="96" height="96"><div class="splash-name">G<span>-CATION</span></div><div class="splash-bar"><span></span></div></div></div>
 <header class="site-nav"><div class="wrap navin">
   <a class="brand" href="/" aria-label="G-CATION home"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span>-CATION</span></a>
-  <nav class="links"><a href="#courses">Courses</a><a href="#how">How it works</a><a href="#founders">Founders</a><a href="#about">About</a></nav>
+  <nav class="links"><a href="#courses">Courses</a><a href="#how">How it works</a><a href="#app">App</a><a href="#founders">Founders</a><a href="#about">About</a></nav>
   <div class="navbtns" id="navBtns">
     <button class="icon-btn theme-btn hide-xs" type="button" data-theme-toggle></button>
     <a class="btn ghost sm hide-sm" href="admin-login.html" id="adminBtn"></a>
@@ -26,8 +26,9 @@
 </div></header>
 
 <div class="mobile-menu" id="mobileMenu">
-  <a class="link" href="#courses">Courses</a><a class="link" href="#how">How it works</a><a class="link" href="#founders">Founders</a><a class="link" href="#about">About</a>
+  <a class="link" href="#courses">Courses</a><a class="link" href="#how">How it works</a><a class="link" href="#app">Android app</a><a class="link" href="#founders">Founders</a><a class="link" href="#about">About</a>
   <div class="btns" id="mobileBtns">
+    <a class="btn primary block" href="downloads/gcation.apk" download data-icon="android">Download for Android</a>
     <button class="btn outline block theme-menu-btn" type="button" data-theme-toggle="label"></button>
     <a class="btn outline block" href="login.html">Student login</a>
     <a class="btn ghost block" href="admin-login.html" id="adminBtnM"></a>
@@ -44,6 +45,7 @@
       <a class="btn white lg" href="#courses">Explore courses <span aria-hidden="true">→</span></a>
       <a class="btn on-dark lg" href="login.html">Student login</a>
     </div>
+    <a class="hero-app" href="#app"><span class="hero-app-ico" data-icon="android"></span><span><b>Get the Android app</b><small>Your courses and updates on your phone</small></span><span class="hero-app-arrow" data-icon="arrowRight"></span></a>
   </div>
   <div class="hero-panel">
     <div class="orbit"><div class="orb-logo"><img src="assets/logo-mark.png" alt="G-CATION logo" width="150" height="150"></div></div>
@@ -67,6 +69,41 @@
     <div class="card step"><div class="num">2</div><h3>Scan &amp; pay</h3><p>Scan the UPI QR in your dashboard. A backup QR is ready if the first one does not work.</p></div>
     <div class="card step"><div class="num">3</div><h3>Confirm</h3><p>Share your payment details and give us a quick call. We verify it right away.</p></div>
     <div class="card step"><div class="num">4</div><h3>Start learning</h3><p>Your course unlocks with class links, community and updates in one place.</p></div>
+  </div>
+</div></section>
+
+<section class="section app-section" id="app"><div class="wrap">
+  <div class="app-promo reveal">
+    <div class="app-copy">
+      <span class="kicker" style="color:#d9bfff">G-CATION for Android</span>
+      <h2>Your classes, right in your pocket.</h2>
+      <p>Pay by UPI, open your live classes, get updates the moment they're posted and download your receipts, all from the G-CATION app.</p>
+      <ul class="app-points">
+        <li><span data-icon="qr"></span>Scan &amp; pay with any UPI app</li>
+        <li><span data-icon="video"></span>Join Google Meet classes in one tap</li>
+        <li><span data-icon="bell"></span>Class links and updates as they arrive</li>
+        <li><span data-icon="download"></span>Payment receipts saved to your phone</li>
+      </ul>
+      <div class="app-cta">
+        <a class="btn white lg" href="downloads/gcation.apk" download data-icon="android">Download for Android</a>
+        <small>Free · Android 7.0 or newer · 14 MB</small>
+      </div>
+      <p class="app-note">After downloading, open the file and allow installs from your browser when Android asks.</p>
+    </div>
+    <div class="app-stage" aria-hidden="true">
+      <div class="app-glow"></div>
+      <div class="app-ring r1"></div><div class="app-ring r2"></div>
+      <div class="phone">
+        <div class="phone-screen">
+          <img src="assets/app-courses.png" alt="" width="832" height="1720" loading="lazy">
+          <div class="phone-shine"></div>
+        </div>
+        <div class="phone-island"></div>
+      </div>
+      <div class="app-chip c1"><span class="chip-ico ok" data-icon="checkCircle"></span><span><b>Payment verified</b><small>Access active for 1 year</small></span></div>
+      <div class="app-chip c2"><span class="chip-ico" data-icon="video"></span><span><b>Live class today</b><small>7:00 PM · Join now</small></span></div>
+      <div class="app-chip c3"><span class="chip-ico warm" data-icon="sparkles"></span><span><b>New update</b><small>From G-CATION</small></span></div>
+    </div>
   </div>
 </div></section>
 
@@ -100,6 +137,16 @@ document.getElementById('year').textContent = new Date().getFullYear();
 document.getElementById('ghLink').insertAdjacentHTML('afterbegin', icon('github'));
 document.getElementById('adminBtn').innerHTML = icon('shield') + ' Admin';
 document.getElementById('adminBtnM').innerHTML = icon('shield') + ' Admin login';
+document.querySelectorAll('[data-icon]').forEach(el => el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon)));
+
+// The app section animates in when it scrolls into view.
+const reveal = document.querySelectorAll('.reveal');
+if ('IntersectionObserver' in window) {
+  const io = new IntersectionObserver(entries => entries.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }), { threshold: 0.2 });
+  reveal.forEach(el => io.observe(el));
+} else reveal.forEach(el => el.classList.add('in'));
 
 const menuBtn = document.getElementById('menuBtn'), menu = document.getElementById('mobileMenu');
 menuBtn.innerHTML = icon('menu');

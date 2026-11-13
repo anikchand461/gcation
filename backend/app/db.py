@@ -114,14 +114,6 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_announcements_created ON announcements(created_at DESC);
 """
 
-DEFAULT_COURSE = (
-    "Online Spoken English Batch",
-    "A one-year online Spoken English learning package with live classes, "
-    "speaking practice and communication skill development.",
-    3099,
-    365,
-)
-
 # min_size=0 lets Neon scale the database to zero when the site is idle, and max_idle=60 drops
 # idle connections well before Neon suspends, so a stale connection is never handed out.
 # autocommit avoids BEGIN/COMMIT round trips; endpoints that write several rows use db.transaction().
@@ -141,11 +133,6 @@ def init_db() -> None:
     now = int(time.time())
     with pool.connection() as conn:
         conn.execute(SCHEMA)
-        if conn.execute("SELECT COUNT(*) AS n FROM courses").fetchone()["n"] == 0:
-            conn.execute(
-                "INSERT INTO courses (title, description, price, default_days) VALUES (%s, %s, %s, %s)",
-                DEFAULT_COURSE,
-            )
         conn.execute(
             "INSERT INTO payment_methods (slot, label, upi_id, payee_name, updated_at) VALUES "
             "('primary', 'Primary QR', %s, %s, %s), ('secondary', 'Secondary QR', '', %s, %s) "
