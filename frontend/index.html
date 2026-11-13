@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1d0b36">
+<title>G-CATION | Learn. Grow. Succeed.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="site-nav"><div class="wrap navin">
+  <a class="brand" href="/" aria-label="G-CATION home">G<span>-CATION</span></a>
+  <nav class="links"><a href="#courses">Courses</a><a href="#how">How it works</a><a href="#founders">Founders</a><a href="#about">About</a></nav>
+  <div class="navbtns" id="navBtns">
+    <a class="btn ghost sm hide-sm" href="admin-login.html" id="adminBtn"></a>
+    <a class="btn outline sm hide-sm" href="login.html">Student login</a>
+    <a class="btn primary sm" href="login.html#register">Enroll now</a>
+    <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false"></button>
+  </div>
+</div></header>
+
+<div class="mobile-menu" id="mobileMenu">
+  <a class="link" href="#courses">Courses</a><a class="link" href="#how">How it works</a><a class="link" href="#founders">Founders</a><a class="link" href="#about">About</a>
+  <div class="btns" id="mobileBtns">
+    <a class="btn outline block" href="login.html">Student login</a>
+    <a class="btn ghost block" href="admin-login.html" id="adminBtnM"></a>
+  </div>
+</div>
+
+<main>
+<section class="hero"><div class="wrap hero-grid">
+  <div>
+    <span class="eyebrow">A smarter way to learn</span>
+    <h1>Build confidence.<br><em>Speak with purpose.</em></h1>
+    <p>Welcome to G-CATION — a learning space focused on spoken English, communication skills and personal growth. Learn step by step, practise with confidence and keep moving forward.</p>
+    <div class="hero-actions">
+      <a class="btn white lg" href="#courses">Explore courses <span aria-hidden="true">→</span></a>
+      <a class="btn on-dark lg" href="login.html">Student login</a>
+    </div>
+  </div>
+  <div class="hero-panel">
+    <div class="orbit"><div class="orb-logo">G-CATION</div></div>
+    <div class="hero-stats"><div><b>Live</b><small>Online classes</small></div><div><b>Practice</b><small>Speaking first</small></div><div><b>Support</b><small>Real mentors</small></div></div>
+  </div>
+</div></section>
+
+<section class="section" id="courses"><div class="wrap">
+  <div class="section-head">
+    <span class="kicker">Our programmes</span>
+    <h2>Learn to communicate with confidence</h2>
+    <p class="sub">Online learning packages designed to help you practise and develop real communication skills.</p>
+  </div>
+  <div id="courseList"><div class="skeleton" style="height:320px"></div></div>
+</div></section>
+
+<section class="section" id="how" style="padding-top:20px"><div class="wrap">
+  <div class="section-head"><span class="kicker">How enrollment works</span><h2>Four simple steps</h2></div>
+  <div class="steps">
+    <div class="card step"><div class="num">1</div><h3>Register</h3><p>Create your free student account with your email and phone number.</p></div>
+    <div class="card step"><div class="num">2</div><h3>Scan &amp; pay</h3><p>Scan the UPI QR in your dashboard. A backup QR is ready if the first one does not work.</p></div>
+    <div class="card step"><div class="num">3</div><h3>Confirm</h3><p>Share your payment details and give us a quick call. We verify it right away.</p></div>
+    <div class="card step"><div class="num">4</div><h3>Start learning</h3><p>Your course unlocks with class links, community and updates in one place.</p></div>
+  </div>
+</div></section>
+
+<section class="section" id="founders" style="padding-top:20px"><div class="wrap">
+  <div class="section-head"><span class="kicker">The people behind G-CATION</span><h2>Meet our founders</h2><p class="sub">Building a learning community through practice, guidance and growth.</p></div>
+  <div class="founder-grid">
+    <div class="card founder"><div class="avatar">AM</div><h3>Aritra Mondal</h3><p>Founder</p></div>
+    <div class="card founder"><div class="avatar">SK</div><h3>Sayan Kundu</h3><p>Co-Founder</p></div>
+  </div>
+</div></section>
+
+<section class="section" id="about" style="padding-top:20px"><div class="wrap">
+  <div class="cta">
+    <span class="kicker" style="color:#d9bfff">Your next step starts here</span>
+    <h2>Ready to begin your learning journey?</h2>
+    <p>Create your free account to see courses, payment options and class details.</p>
+    <a class="btn white lg" href="login.html#register" style="margin-top:10px">Create free account</a>
+  </div>
+</div></section>
+</main>
+
+<footer class="footer"><div class="wrap footerin">
+  <div><b class="brand" style="font-size:1.2rem;color:#fff">G<span style="color:#d7b9ff">-CATION</span></b><br><small>Learn. Grow. Succeed.</small></div>
+  <small>© <span id="year"></span> G-CATION · <a href="login.html">Student login</a> · <a href="admin-login.html">Admin login</a></small>
+</div></footer>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script>
+document.getElementById('year').textContent = new Date().getFullYear();
+document.getElementById('adminBtn').innerHTML = icon('shield') + ' Admin';
+document.getElementById('adminBtnM').innerHTML = icon('shield') + ' Admin login';
+
+const menuBtn = document.getElementById('menuBtn'), menu = document.getElementById('mobileMenu');
+menuBtn.innerHTML = icon('menu');
+menuBtn.addEventListener('click', () => {
+  const open = !menu.classList.contains('show');
+  menu.classList.toggle('show', open);
+  menuBtn.setAttribute('aria-expanded', open);
+  menuBtn.innerHTML = icon(open ? 'x' : 'menu');
+});
+menu.addEventListener('click', e => { if (e.target.closest('a')) { menu.classList.remove('show'); menuBtn.innerHTML = icon('menu'); } });
+
+function durationLabel(days) {
+  if (days % 365 === 0) return (days / 365) + (days === 365 ? ' year' : ' years');
+  if (days % 30 === 0) return (days / 30) + (days === 30 ? ' month' : ' months');
+  return days + ' days';
+}
+
+api('/api/courses').then(courses => {
+  const list = document.getElementById('courseList');
+  if (!courses.length) { list.innerHTML = emptyState('book', 'New batches coming soon', 'Check back shortly for upcoming courses.'); return; }
+  list.innerHTML = courses.map(c => `
+    <div class="card course-feature">
+      <div class="course-art"><div class="course-art-inner"><div class="big">✦</div><h3>${esc(c.title)}</h3><div>Learn • Practise • Grow</div></div></div>
+      <div class="course-info">
+        <span class="pill">${esc(durationLabel(c.default_days).toUpperCase())} ACCESS</span>
+        <h2 style="font-size:1.6rem;margin:12px 0 6px">${esc(c.title)}</h2>
+        <p class="sub" style="margin:0">${esc(c.description)}</p>
+        <div class="price">${rupees(c.price)} <small>/ ${esc(durationLabel(c.default_days))}</small></div>
+        <ul class="features">
+          <li>${icon('checkCircle')} Live online classes</li><li>${icon('checkCircle')} Speaking practice &amp; community</li>
+          <li>${icon('checkCircle')} Class links and updates on your dashboard</li></ul>
+        <a class="btn primary block lg" href="login.html#register">Enroll now</a>
+        <p class="tiny muted center" style="margin:10px 0 0">Access starts after the G-CATION team verifies your payment.</p>
+      </div>
+    </div>`).join('');
+}).catch(() => {
+  document.getElementById('courseList').innerHTML = emptyState('alert', 'Could not load courses', 'Please refresh the page in a moment.');
+});
+
+// Logged-in students get a shortcut to their dashboard.
+api('/api/me').then(() => {
+  document.querySelector('#navBtns a.primary').outerHTML = '<a class="btn primary sm" href="dashboard.html">My dashboard</a>';
+}).catch(() => {});
+</script>
+</body>
+</html>

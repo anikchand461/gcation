@@ -1,0 +1,6 @@
+fastapi==0.162.5
+uvicorn[standard]==0.54.0
+qrcode==8.2
+python-dotenv==1.2.4
+psycopg[binary]==3.3.9
+psycopg-pool==3.3.3

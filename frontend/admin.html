@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#f7f3fd">
+<meta name="robots" content="noindex">
+<title>Admin | G-CATION</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" aria-label="Admin navigation">
+    <a class="brand" href="#/overview">G<span>-CATION</span><span class="tag">ADMIN</span></a>
+    <a class="nav-item" href="#/overview" data-route="overview" data-icon="home">Overview</a>
+    <div class="nav-label">People &amp; money</div>
+    <a class="nav-item" href="#/students" data-route="students" data-icon="users">Students</a>
+    <a class="nav-item" href="#/notes" data-route="notes" data-icon="hourglass">Payment notes <span class="count" id="navNotes" hidden></span></a>
+    <a class="nav-item" href="#/payments" data-route="payments" data-icon="wallet">Payments</a>
+    <div class="nav-label">Content &amp; settings</div>
+    <a class="nav-item" href="#/updates" data-route="updates" data-icon="megaphone">Updates</a>
+    <a class="nav-item" href="#/qr" data-route="qr" data-icon="qr">Payment QR</a>
+    <a class="nav-item" href="#/courses" data-route="courses" data-icon="book">Courses</a>
+    <div class="sidebar-foot">
+      <a class="btn outline block sm" href="/" target="_blank" rel="noopener" id="viewSite"></a>
+      <button class="btn ghost block sm" id="logoutBtn"></button>
+    </div>
+  </aside>
+  <div class="scrim"></div>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn" data-menu aria-label="Open menu" id="menuBtn"></button>
+      <a class="brand" href="#/overview">G<span>-CATION</span></a>
+      <a class="icon-btn" href="#/notes" id="topNotes" aria-label="Payment notes"></a>
+    </header>
+    <div class="content"><div id="view">
+      <div class="skeleton" style="height:90px;margin-bottom:18px"></div>
+      <div class="skeleton" style="height:300px"></div>
+    </div></div>
+  </div>
+</div>
+
+<div class="drawer-bg" id="drawerBg"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerName">
+  <div class="drawer-head" id="drawerHead"></div>
+  <div class="drawer-body" id="drawerBody"></div>
+</aside>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>
