@@ -8,6 +8,22 @@
 An online education platform where students join courses, pay with UPI and learn with live classes,
 community and updates, all in one place.</p>
 
+<p align="center">
+  <a href="https://gcation.vercel.app"><img src="https://img.shields.io/badge/%E2%96%B2%20Live%20website-gcation.vercel.app-7c3aed?style=for-the-badge&logo=vercel&logoColor=white&labelColor=000000" alt="Live website: gcation.vercel.app"></a>
+  <a href="https://gcation.onrender.com"><img src="https://img.shields.io/badge/API-gcation.onrender.com-46E3B7?style=for-the-badge&logo=render&logoColor=white&labelColor=000000" alt="API: gcation.onrender.com"></a>
+  <a href="https://github.com/anikchand461/gcation"><img src="https://img.shields.io/badge/GitHub-anikchand461%2Fgcation-24292f?style=for-the-badge&logo=github&logoColor=white&labelColor=000000" alt="GitHub repository"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Postgres-Neon-00E599?style=flat-square&logo=postgresql&logoColor=white" alt="Neon Postgres">
+  <img src="https://img.shields.io/badge/JavaScript-vanilla-F7DF1E?style=flat-square&logo=javascript&logoColor=black" alt="Vanilla JavaScript">
+  <img src="https://img.shields.io/badge/Payments-UPI%20QR-5f259f?style=flat-square" alt="UPI QR payments">
+</p>
+
+<p align="center"><a href="https://gcation.vercel.app"><b>→ Open the website</b></a></p>
+
 ---
 
 G-CATION runs any kind of course: academic subjects, languages, skills, test preparation,
@@ -161,15 +177,30 @@ They run as separate servers:
 - `backend/app/main.py` lists the frontend addresses allowed to call the API in the CORS middleware
   (`allow_origins`). Every other website is blocked.
 
-## Going live
+## Deployment
 
-1. Host the frontend and the API on the same main domain, e.g. `gcation.in` and `api.gcation.in`,
-   so login cookies keep working. Put the API server in the **Singapore** region, next to Neon.
-2. Set `API_BASE` in `frontend/js/config.js` to the API address, e.g. `https://api.gcation.in`.
-3. Add the site address, e.g. `https://gcation.in`, to `allow_origins` in `backend/app/main.py`.
-4. Serve both over HTTPS and set `COOKIE_SECURE=true` in the server's `.env`.
-5. Start the API with `uvicorn app.main:app --host 0.0.0.0 --port 8000`. All data is in Neon,
-   so the server keeps no files.
+Live setup: **frontend on Vercel** (https://gcation.vercel.app), **backend on Render**
+(https://gcation.onrender.com, Singapore region, next to Neon), **database on Neon**.
+
+**Backend (Render web service)**
+
+| Setting | Value |
+|---|---|
+| Language | Python 3 |
+| Root Directory | `backend` |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Health Check Path | `/` |
+| Environment | `PYTHON_VERSION=3.12.8`, `DATABASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `COOKIE_SECURE=true` |
+
+**Frontend (Vercel)**: deploy the `frontend` folder as a static site (no build command).
+
+**Connecting them**
+1. `frontend/js/config.js`: set `API_BASE` to the backend address.
+2. `backend/app/main.py`: add the website address to `allow_origins` in the CORS middleware.
+
+The website logs in with a token sent as `Authorization: Bearer …`, so the frontend and backend can be on
+different domains (like vercel.app and onrender.com) and login works in every browser, including Safari on iPhone.
 
 ## Security notes
 
@@ -178,6 +209,8 @@ They run as separate servers:
 - Passwords are hashed with scrypt. Repeated wrong logins are blocked for 15 minutes.
 - Every write request must be JSON, which blocks cross-site form attacks; CORS allows only the
   listed frontend addresses.
+- Login tokens are kept in the browser's storage and sent with each request; logging out removes them,
+  and a password change or reset ends the old sessions.
 - Students can only download their own receipts.
 
 ## Native app

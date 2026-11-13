@@ -27,6 +27,7 @@
   --att-warn:linear-gradient(135deg,#fff7e3,#fff1d2);--att-warn-line:#f3dca6;--att-warn-ico:#ffe3a6;
   --att-info:linear-gradient(135deg,#f3ecff,#ece2ff);--att-info-line:#ddcbf8;--att-info-ico:#e0ccff;
   --att-ok:linear-gradient(135deg,#e9f8f0,#dff4e9);--att-ok-line:#bfe6cf;--att-ok-ico:#c4ecd6;
+  --glass-solid:rgba(255,255,255,.93);
   color-scheme:light;
 }
 /* =========================================================
@@ -49,6 +50,7 @@
     --att-warn:linear-gradient(135deg,rgba(245,158,11,.16),rgba(249,115,22,.1));--att-warn-line:rgba(245,158,11,.3);--att-warn-ico:rgba(245,158,11,.22);
     --att-info:linear-gradient(135deg,rgba(124,58,237,.2),rgba(219,39,119,.1));--att-info-line:rgba(167,139,250,.3);--att-info-ico:rgba(139,92,246,.25);
     --att-ok:linear-gradient(135deg,rgba(16,185,129,.16),rgba(20,184,166,.08));--att-ok-line:rgba(16,185,129,.3);--att-ok-ico:rgba(16,185,129,.22);
+    --glass-solid:rgba(24,18,56,.94);
     color-scheme:dark;
 }}
 :root[data-theme="dark"]{
@@ -68,6 +70,7 @@
     --att-warn:linear-gradient(135deg,rgba(245,158,11,.16),rgba(249,115,22,.1));--att-warn-line:rgba(245,158,11,.3);--att-warn-ico:rgba(245,158,11,.22);
     --att-info:linear-gradient(135deg,rgba(124,58,237,.2),rgba(219,39,119,.1));--att-info-line:rgba(167,139,250,.3);--att-info-ico:rgba(139,92,246,.25);
     --att-ok:linear-gradient(135deg,rgba(16,185,129,.16),rgba(20,184,166,.08));--att-ok-line:rgba(16,185,129,.3);--att-ok-ico:rgba(16,185,129,.22);
+    --glass-solid:rgba(24,18,56,.94);
     color-scheme:dark;
 }
 [hidden]{display:none!important}
@@ -136,7 +139,7 @@ img{max-width:100%}
 .danger-solid{background:#c4352b;color:#fff}
 .success{background:linear-gradient(135deg,#139157,#0f7a49);color:#fff;box-shadow:0 8px 20px rgba(18,122,75,.25)}
 .on-dark{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);color:#fff}.on-dark:hover{background:rgba(255,255,255,.22)}
-.white{background:#fff;color:var(--purple);box-shadow:0 8px 22px rgba(0,0,0,.15)}
+.white{background:#fff;color:#5b21b6;box-shadow:0 8px 22px rgba(0,0,0,.15)}
 .btn.sm{padding:7px 12px;font-size:.82rem;border-radius:9px;gap:6px}.btn.sm .icon{width:15px;height:15px}
 .btn.lg{padding:14px 22px;font-size:1rem;border-radius:14px}
 .btn.block{width:100%}
@@ -610,3 +613,30 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}th.
 .brand .logo,.brand .tag{flex:none}
 .sidebar .brand .logo{width:30px;height:30px;margin-right:7px}
 .sidebar .brand .tag{margin-left:8px;font-size:.58rem;padding:3px 6px}
+
+/* ---------- Phones: no overlap in the header ---------- */
+.theme-menu-btn{display:none}
+@media (max-width:520px){
+  .site-nav .brand{font-size:1.15rem;min-width:0}
+  .site-nav .brand .logo{width:28px;height:28px;margin-right:6px}
+  .navin{gap:8px}
+  .navbtns{gap:6px;flex:none}
+  .navbtns .hide-xs{display:none}
+  .theme-menu-btn{display:flex}
+  .navbtns .btn.sm{padding:8px 11px;font-size:.8rem}
+  .menu-btn{width:38px;height:38px}
+}
+
+/* ---------- Phones & touch devices: lighter effects for smooth scrolling ----------
+   Moving blurred backgrounds and live "glass" blur behind many cards are expensive on phone GPUs.
+   Here the glow stays as a still gradient and cards become nearly solid, so the look is the same. */
+@media (max-width:980px),(pointer:coarse){
+  body:before{animation:none;filter:none;inset:0}
+  .glass,.card,.stat-tile,.search input,.icon-btn,.hero-panel,.mobile-menu,.drawer,.drawer-bg,.dialog-bg,.scrim,.toast{
+    backdrop-filter:none;-webkit-backdrop-filter:none}
+  .glass,.card,.stat-tile{background:var(--glass-solid)}
+  .orbit:before,.orbit:after,.orb-logo img,.splash img{animation:none}
+  .view>*{animation:none}
+  .card:hover,.course-card:hover,button.stat-tile:hover{transform:none}
+  .primary:after{display:none}
+}

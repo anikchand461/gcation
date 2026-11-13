@@ -59,7 +59,7 @@ document.getElementById('form').addEventListener('submit', async e => {
   if (!username || !password) { showError(err, 'Enter your username and password.'); return; }
   showError(err, '');
   try {
-    await withLoading(e.target.querySelector('button'), () => api('/api/admin/login', { method: 'POST', body: { username, password } }));
+    await withLoading(e.target.querySelector('button'), () => api('/api/admin/login', { method: 'POST', body: { username, password, client: 'app' } }));
     location.href = 'admin.html';
   } catch (ex) {
     showError(err, ex.message);

@@ -738,7 +738,7 @@ function qrCard(m) {
   const preview = m.has_image
     ? `<img src="${API_BASE}/api/payment-methods/${m.slot}/image?v=${m.updated_at}" alt="${esc(m.label)} QR image">`
     : m.upi_id
-      ? `<img src="${API_BASE}/api/admin/payment-methods/${m.slot}/preview.svg?v=${m.updated_at}" alt="QR generated from ${esc(m.upi_id)}">`
+      ? `<img data-auth-src="/api/admin/payment-methods/${m.slot}/preview.svg?v=${m.updated_at}" alt="QR generated from ${esc(m.upi_id)}">`
       : `<div class="qr-placeholder">${icon('qr')}<div>No QR yet</div></div>`;
   const showing = m.has_image ? 'your uploaded image' : m.upi_id ? 'a QR made from the UPI ID, with the amount filled in' : 'nothing — this option is hidden';
   return `<form class="card pad-lg" data-slot="${m.slot}" novalidate>
@@ -1077,6 +1077,7 @@ document.getElementById('viewSite').innerHTML = icon('external') + ' View websit
 document.getElementById('logoutBtn').innerHTML = icon('logout') + ' Log out';
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   await api('/api/admin/logout', { method: 'POST' }).catch(() => {});
+  setToken('admin', '');
   location.href = 'admin-login.html';
 });
 setupSidebarToggle();

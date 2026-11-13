@@ -96,7 +96,7 @@ async function submit(form, errEl, path, body, problem) {
   showError(errEl, problem);
   if (problem) return;
   try {
-    await withLoading(form.querySelector('button[type=submit]'), () => api(path, { method: 'POST', body }));
+    await withLoading(form.querySelector('button[type=submit]'), () => api(path, { method: 'POST', body: { ...body, client: 'app' } }));
     location.href = 'dashboard.html';
   } catch (e) {
     showError(errEl, e.message);

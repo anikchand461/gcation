@@ -1,7 +1,29 @@
 // Shared helpers for every page. API_BASE comes from config.js, which every page loads first.
 
+// ---------- Login tokens ----------
+// The website and the API live on different sites (e.g. vercel.app and onrender.com), where browsers
+// do not send login cookies. So each login stores a token and every request sends it as a Bearer header.
+const TOKEN_KEYS = { student: 'gc-token', admin: 'gc-admin-token' };
+const roleFor = path => (path.startsWith('/api/admin') ? 'admin' : 'student');
+
+function getToken(role) {
+  try { return localStorage.getItem(TOKEN_KEYS[role]) || ''; } catch { return ''; }
+}
+
+function setToken(role, token) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEYS[role], token);
+    else localStorage.removeItem(TOKEN_KEYS[role]);
+  } catch { /* storage blocked: the cookie (same-site hosting) still works */ }
+}
+
+function authHeaders(path) {
+  const token = getToken(roleFor(path));
+  return token ? { Authorization: 'Bearer ' + token } : {};
+}
+
 async function api(path, { method = 'GET', body } = {}) {
-  const opts = { method, headers: {}, credentials: 'include' };
+  const opts = { method, headers: authHeaders(path), credentials: 'include' };
   if (method !== 'GET') {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body || {});
@@ -17,12 +39,32 @@ async function api(path, { method = 'GET', body } = {}) {
   let data = null;
   try { data = await res.json(); } catch { /* empty body */ }
   if (!res.ok) {
+    if (res.status === 401) setToken(roleFor(path), ''); // expired or revoked
     const err = new Error(errorText(data) || 'Something went wrong. Please try again.');
     err.status = res.status;
     throw err;
   }
+  if (data && data.token && /\/(login|register)$/.test(path)) setToken(roleFor(path), data.token);
   return data;
 }
+
+// Images that need a login (e.g. the generated payment QR) are fetched with the token.
+// Mark them with data-auth-src="/api/..." instead of src.
+const authImageCache = new Map();
+async function loadAuthImage(img) {
+  const path = img.dataset.authSrc;
+  img.removeAttribute('data-auth-src');
+  try {
+    if (!authImageCache.has(path)) {
+      const res = await fetch(API_BASE + path, { headers: authHeaders(path), credentials: 'include' });
+      if (!res.ok) throw new Error(res.status);
+      authImageCache.set(path, URL.createObjectURL(await res.blob()));
+    }
+    img.src = authImageCache.get(path);
+  } catch { img.alt = 'Could not load image'; }
+}
+new MutationObserver(() => document.querySelectorAll('img[data-auth-src]').forEach(loadAuthImage))
+  .observe(document.documentElement, { childList: true, subtree: true });
 
 function errorText(data) {
   if (!data || !data.detail) return '';
@@ -295,9 +337,9 @@ function courseThumb(c, extra = '') {
   return `<div class="course-thumb ${thumbClass(c.id)} ${extra}">${url ? `<img src="${url}" alt="" loading="lazy">` : icon('graduation')}</div>`;
 }
 
-// Downloads a file from the API (uses the login cookie), e.g. a receipt PDF.
+// Downloads a file from the API with the login token, e.g. a receipt PDF.
 async function downloadFile(path, filename) {
-  const res = await fetch(API_BASE + path, { credentials: 'include' });
+  const res = await fetch(API_BASE + path, { headers: authHeaders(path), credentials: 'include' });
   if (!res.ok) {
     let msg = 'Could not download the file.';
     try { msg = errorText(await res.json()) || msg; } catch { /* not JSON */ }

@@ -287,9 +287,10 @@ function stepPay(c) {
   const slot = methods.some(m => m.slot === chosenSlot[c.id]) ? chosenSlot[c.id] : methods[0].slot;
   chosenSlot[c.id] = slot;
   const m = methods.find(x => x.slot === slot);
-  const img = m.has_image
-    ? `${API_BASE}/api/payment-methods/${m.slot}/image?v=${m.updated_at}`
-    : `${API_BASE}/api/me/qr/${c.id}.svg?slot=${m.slot}&v=${m.updated_at}`;
+  // Uploaded QR images are public; the generated QR needs the student's login.
+  const imgAttr = m.has_image
+    ? `src="${API_BASE}/api/payment-methods/${m.slot}/image?v=${m.updated_at}"`
+    : `data-auth-src="/api/me/qr/${c.id}.svg?slot=${m.slot}&v=${m.updated_at}"`;
   const upiLink = m.upi_id
     ? `upi://pay?pa=${encodeURIComponent(m.upi_id).replace('%40', '@')}&pn=${encodeURIComponent(m.payee_name || 'G-CATION')}`
       + `&am=${Number(c.price).toFixed(2)}&cu=INR&tn=${encodeURIComponent('GCATION ID ' + me.student.id)}`
@@ -300,7 +301,7 @@ function stepPay(c) {
         ${methods.length > 1 ? `<div class="seg" role="tablist">${methods.map(x =>
           `<button type="button" role="tab" data-slot="${x.slot}" class="${x.slot === slot ? 'on' : ''}" aria-selected="${x.slot === slot}">${esc(x.label || (x.slot === 'primary' ? 'Primary QR' : 'Secondary QR'))}</button>`).join('')}</div>` : ''}
         <div class="qr-frame"><span class="corner c1"></span><span class="corner c2"></span><span class="corner c3"></span><span class="corner c4"></span>
-          <img src="${img}" alt="UPI QR code: ${esc(m.label)}" width="300" height="300"></div>
+          <img ${imgAttr} alt="UPI QR code: ${esc(m.label)}" width="300" height="300"></div>
         ${methods.length > 1 ? `<p class="hint center" style="margin:0">QR not working? Try the other one above.</p>` : ''}
       </div>
       <div class="stack">
@@ -593,6 +594,7 @@ function viewProfile() {
 
 async function logout() {
   await api('/api/logout', { method: 'POST' }).catch(() => {});
+  setToken('student', '');
   location.href = '/';
 }
 
