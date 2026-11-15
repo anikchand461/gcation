@@ -65,10 +65,20 @@ func start(action, data string, extras func(jni.Env, jni.Class, jni.Object) erro
 		if err != nil {
 			return err
 		}
+		// The Intent is made empty and filled in with setAction / setData: the jni package's
+		// NewObject passes constructor arguments wrongly (crashing the app), but calls are fine.
 		intentClass := jni.FindClass(env, "android/content/Intent")
-		newIntent := jni.GetMethodID(env, intentClass, "<init>", "(Ljava/lang/String;Landroid/net/Uri;)V")
-		intent, err := jni.NewObject(env, intentClass, newIntent, jni.Value(jni.JavaString(env, action)), jni.Value(uri))
+		newIntent := jni.GetMethodID(env, intentClass, "<init>", "()V")
+		intent, err := jni.NewObject(env, intentClass, newIntent)
 		if err != nil {
+			return err
+		}
+		setAction := jni.GetMethodID(env, intentClass, "setAction", "(Ljava/lang/String;)Landroid/content/Intent;")
+		if _, err := jni.CallObjectMethod(env, intent, setAction, jni.Value(jni.JavaString(env, action))); err != nil {
+			return err
+		}
+		setData := jni.GetMethodID(env, intentClass, "setData", "(Landroid/net/Uri;)Landroid/content/Intent;")
+		if _, err := jni.CallObjectMethod(env, intent, setData, jni.Value(uri)); err != nil {
 			return err
 		}
 		if extras != nil {
