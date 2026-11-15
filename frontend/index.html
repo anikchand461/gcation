@@ -22,7 +22,7 @@
   <div class="navbtns" id="navBtns">
     <button class="icon-btn theme-btn hide-xs" type="button" data-theme-toggle></button>
     <a class="btn ghost sm hide-sm" href="admin-login.html" id="adminBtn"></a>
-    <a class="btn outline sm hide-sm" href="login.html">Student login</a>
+    <a class="btn outline sm hide-sm" href="management-login.html" id="mgmtBtn"></a>
     <a class="btn primary sm" href="login.html#register">Enroll now</a>
     <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false"></button>
   </div>
@@ -33,7 +33,7 @@
   <div class="btns" id="mobileBtns">
     <a class="btn primary block" href="downloads/gcation.apk" download data-icon="android">Download for Android</a>
     <button class="btn outline block theme-menu-btn" type="button" data-theme-toggle="label"></button>
-    <a class="btn outline block" href="login.html">Student login</a>
+    <a class="btn outline block" href="management-login.html" id="mgmtBtnM"></a>
     <a class="btn ghost block" href="admin-login.html" id="adminBtnM"></a>
   </div>
 </div>
@@ -128,18 +128,58 @@
 </div></section>
 </main>
 
-<footer class="footer"><div class="wrap footerin">
-  <div><b class="brand" style="font-size:1.2rem;color:#fff"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span style="color:#d7b9ff">-CATION</span></b><br><small>Learn. Grow. Succeed.</small></div>
-  <small class="row" style="gap:8px">© <span id="year"></span> G-CATION · <a href="https://github.com/anikchand461/gcation" target="_blank" rel="noopener" class="row" style="gap:6px" id="ghLink">GitHub</a></small>
-</div></footer>
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="/" style="font-size:1.25rem;color:#fff"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span style="color:#d7b9ff">-CATION</span></a>
+        <p>Learn. Grow. Succeed. Live online courses with simple UPI payments and quick verification.</p>
+        <div class="footer-social">
+          <a href="https://github.com/anikchand461/gcation" target="_blank" rel="noopener" aria-label="G-CATION on GitHub" data-icon="github"></a>
+          <a href="mailto:gcationadmin27@gmail.com" aria-label="Email G-CATION" id="mailIcon" data-icon="mail"></a>
+          <a href="downloads/gcation.apk" download aria-label="Download the Android app" data-icon="android"></a>
+        </div>
+      </div>
+      <nav class="footer-col" aria-label="Explore">
+        <h4>Explore</h4>
+        <a href="#courses">Courses</a><a href="#how">How it works</a><a href="#app">Android app</a><a href="#founders">Founders</a><a href="#about">About</a>
+      </nav>
+      <nav class="footer-col" aria-label="Accounts">
+        <h4>Accounts</h4>
+        <a href="login.html#register">Enroll now</a><a href="login.html">Student login</a><a href="management-login.html">Management login</a><a href="admin-login.html">Admin login</a>
+      </nav>
+      <div class="footer-col">
+        <h4>Need help?</h4>
+        <div class="footer-contact" id="helpLinks"></div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <small>© <span id="year"></span> G-CATION. All rights reserved.</small>
+      <small><a href="https://github.com/anikchand461/gcation" target="_blank" rel="noopener">Source code on GitHub</a></small>
+    </div>
+  </div>
+</footer>
 
 <script src="js/config.js"></script>
 <script src="js/common.js"></script>
 <script>
 document.getElementById('year').textContent = new Date().getFullYear();
-document.getElementById('ghLink').insertAdjacentHTML('afterbegin', icon('github'));
+
+// Help contacts in the footer: both support numbers and the email.
+function renderHelp(adminPhone = '') {
+  document.getElementById('helpLinks').innerHTML =
+    supportPhones(adminPhone).map(p => `<a href="${esc(telHref(p))}"><span class="ico">${icon('phone')}</span>${esc(p)}</a>`).join('') +
+    `<a href="${esc(mailHref('Question about G-CATION'))}"${MAIL_TARGET}><span class="ico">${icon('mail')}</span>${esc(HELP_EMAIL)}</a>`;
+  const mail = document.getElementById('mailIcon');
+  mail.href = mailHref('Question about G-CATION');
+  if (MAIL_TARGET) { mail.target = '_blank'; mail.rel = 'noopener'; }
+}
+renderHelp();
+api('/api/contact').then(c => renderHelp(c.contact_phone)).catch(() => {});
 document.getElementById('adminBtn').innerHTML = icon('shield') + ' Admin';
 document.getElementById('adminBtnM').innerHTML = icon('shield') + ' Admin login';
+document.getElementById('mgmtBtn').innerHTML = icon('users') + ' Management';
+document.getElementById('mgmtBtnM').innerHTML = icon('users') + ' Management login';
 document.querySelectorAll('[data-icon]').forEach(el => el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon)));
 
 // The app section animates in when it scrolls into view.

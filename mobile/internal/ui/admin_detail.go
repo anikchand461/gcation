@@ -127,7 +127,7 @@ func (d *studentDetail) pickClaim(i int) {
 		d.amount.Ed.SetText(strconv.FormatFloat(*c.Amount, 'f', -1, 64))
 	}
 	var parts []string
-	for _, p := range []string{c.Method, prefix("paid by ", c.PayerName), prefix("UTR ", c.Reference), prefix("on ", c.PaidOn)} {
+	for _, p := range []string{c.Method, prefix("paid by ", c.PayerName), prefix("UTR ", c.Reference), prefix("on ", c.PaidOn), prefix("referral ", c.ReferralID)} {
 		if p != "" {
 			parts = append(parts, p)
 		}
@@ -236,7 +236,7 @@ func (a *App) studentDetailItems(gtx C, d *studentDetail) []layout.Widget {
 							layout.Flexed(1, func(gtx C) D {
 								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 									layout.Rigid(func(gtx C) D { return a.th.label(gtx, st.Name, textOpt{size: 17, weight: font.Bold}) }),
-									layout.Rigid(func(gtx C) D { return a.th.muted(gtx, fmt.Sprintf("#%d · %s", st.ID, st.Email), 13) }),
+									layout.Rigid(func(gtx C) D { return a.th.muted(gtx, studentIDText(st)+" · "+st.Email, 13) }),
 									layout.Rigid(func(gtx C) D { return a.th.muted(gtx, "Joined "+fmtDate(st.CreatedAt), 12) }),
 								)
 							}),
@@ -291,6 +291,10 @@ func (a *App) studentDetailItems(gtx C, d *studentDetail) []layout.Widget {
 		items = append(items, a.groupLabel("PAYMENT NOTES FROM STUDENT"))
 		for _, c := range pending {
 			c := c
+			shot := a.clk(fmt.Sprint("dshot", c.ID))
+			if shot.Clicked(gtx) {
+				a.admin.shot = &c
+			}
 			items = append(items, func(gtx C) D {
 				return a.th.notice(gtx, icHourglass, toneAmber, func(gtx C) D {
 					amount := "Amount not given"
@@ -302,7 +306,7 @@ func (a *App) studentDetailItems(gtx C, d *studentDetail) []layout.Widget {
 					if c.Age != nil {
 						age = fmt.Sprint("age ", *c.Age)
 					}
-					for _, p := range []string{prefix("via ", c.Method), prefix("payer ", c.PayerName), c.PaidOn, prefix("UTR ", c.Reference), age, prefix("referred by ", c.ReferredBy)} {
+					for _, p := range []string{prefix("via ", c.Method), prefix("payer ", c.PayerName), c.PaidOn, prefix("UTR ", c.Reference), age, prefix("referred by ", referralText(c))} {
 						if p != "" {
 							line += " · " + p
 						}
@@ -313,6 +317,14 @@ func (a *App) studentDetailItems(gtx C, d *studentDetail) []layout.Widget {
 						}),
 						layout.Rigid(func(gtx C) D {
 							return a.th.label(gtx, c.CourseTitle+" · sent "+fmtDateTime(c.CreatedAt), textOpt{size: 12, color: a.th.P.Amber})
+						}),
+						layout.Rigid(func(gtx C) D {
+							if !c.HasScreenshot {
+								return D{}
+							}
+							return layout.Inset{Top: 8}.Layout(gtx, func(gtx C) D {
+								return a.th.button(gtx, shot, "View screenshot", btnOpt{kind: btnOutline, small: true, icon: icEye})
+							})
 						}),
 					)
 				})

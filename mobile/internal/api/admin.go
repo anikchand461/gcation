@@ -76,22 +76,31 @@ type Enrollment struct {
 }
 
 type ClaimRow struct {
-	ID           int64    `json:"id"`
-	StudentID    int64    `json:"student_id"`
-	CourseID     int64    `json:"course_id"`
-	CourseTitle  string   `json:"course_title"`
-	QRSlot       string   `json:"qr_slot"`
-	PayerName    string   `json:"payer_name"`
-	Method       string   `json:"method"`
-	Amount       *float64 `json:"amount"`
-	PaidOn       string   `json:"paid_on"`
-	Reference    string   `json:"reference"`
-	Age          *int     `json:"age"`
-	ReferredBy   string   `json:"referred_by"`
-	Status       string   `json:"status"`
-	CreatedAt    int64    `json:"created_at"`
-	StudentName  string   `json:"student_name"`
-	StudentPhone string   `json:"student_phone"`
+	ID            int64    `json:"id"`
+	StudentID     int64    `json:"student_id"`
+	CourseID      int64    `json:"course_id"`
+	CourseTitle   string   `json:"course_title"`
+	QRSlot        string   `json:"qr_slot"`
+	PayerName     string   `json:"payer_name"`
+	Method        string   `json:"method"`
+	Amount        *float64 `json:"amount"`
+	PaidOn        string   `json:"paid_on"`
+	Reference     string   `json:"reference"`
+	Age           *int     `json:"age"`
+	ReferredBy    string   `json:"referred_by"`
+	ReferralID    string   `json:"referral_id"`
+	ReferralName  *string  `json:"referral_name"`
+	HasScreenshot bool     `json:"has_screenshot"`
+	Status        string   `json:"status"`
+	CreatedAt     int64    `json:"created_at"`
+	StudentName   string   `json:"student_name"`
+	StudentPhone  string   `json:"student_phone"`
+	StudentCode   *string  `json:"student_code"`
+}
+
+// ScreenshotPath is where the admin fetches the payment screenshot (deleted 5 minutes after approval).
+func (c ClaimRow) ScreenshotPath() string {
+	return fmt.Sprintf("/api/admin/claims/%d/screenshot", c.ID)
 }
 
 type GrantIn struct {
@@ -104,23 +113,29 @@ type GrantIn struct {
 }
 
 type Announcement struct {
-	ID          int64   `json:"id"`
-	Title       string  `json:"title"`
-	Message     string  `json:"message"`
-	LinkURL     string  `json:"link_url"`
-	LinkLabel   string  `json:"link_label"`
-	CourseID    *int64  `json:"course_id"`
-	CourseTitle *string `json:"course_title"`
-	CreatedAt   int64   `json:"created_at"`
-	UpdatedAt   int64   `json:"updated_at"`
+	ID            int64   `json:"id"`
+	Title         string  `json:"title"`
+	Message       string  `json:"message"`
+	LinkURL       string  `json:"link_url"`
+	LinkLabel     string  `json:"link_label"`
+	ToManagement  bool    `json:"to_management"`
+	ToAllStudents bool    `json:"to_all_students"`
+	CourseIDs     []int64 `json:"course_ids"`
+	AudienceLabel string  `json:"audience_label"` // e.g. "Management · All paid students"
+	CreatedAt     int64   `json:"created_at"`
+	UpdatedAt     int64   `json:"updated_at"`
 }
 
+// AnnouncementIn says who sees an update: any mix of the management team, every paid student
+// and the students of some courses.
 type AnnouncementIn struct {
-	Title     string `json:"title"`
-	Message   string `json:"message"`
-	LinkURL   string `json:"link_url"`
-	LinkLabel string `json:"link_label"`
-	CourseID  *int64 `json:"course_id"`
+	Title         string  `json:"title"`
+	Message       string  `json:"message"`
+	LinkURL       string  `json:"link_url"`
+	LinkLabel     string  `json:"link_label"`
+	ToManagement  bool    `json:"to_management"`
+	ToAllStudents bool    `json:"to_all_students"`
+	CourseIDs     []int64 `json:"course_ids"`
 }
 
 type AdminCourse struct {

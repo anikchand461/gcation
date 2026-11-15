@@ -1,5 +1,6 @@
-// Package ui is the G-CATION app: the student side (home, courses, checkout, updates, profile)
-// and the admin side (overview, students, payments, updates, settings).
+// Package ui is the G-CATION app: the student side (home, courses, checkout, updates, profile),
+// the management team side (home, courses, profile) and the admin side (overview, students,
+// payments, updates, settings).
 package ui
 
 import (
@@ -72,6 +73,7 @@ type App struct {
 	tab      tab
 	checkout *checkoutState // set while the checkout screen is open
 	admin    *adminState    // set when logged in as the admin
+	mgmt     *mgmtState     // set when logged in as a management team member
 	dialog   *dialogState   // confirm dialog on top of everything
 	intro    introState     // opening animation
 
@@ -138,6 +140,8 @@ func New(w *app.Window, apiBase, webURL, dataDir string) *App {
 	a.intro.start = time.Now()
 	if a.api.AdminLoggedIn() {
 		a.startAdmin()
+	} else if a.api.ManagerLoggedIn() {
+		a.startManagement()
 	} else if a.api.LoggedIn() {
 		a.screen = scrSplash
 		a.reload()
@@ -266,7 +270,7 @@ func (a *App) pollUpdates() {
 }
 
 func (a *App) signedOut(msg string) {
-	a.me, a.updates, a.checkout, a.admin, a.dialog = nil, nil, nil, nil, nil
+	a.me, a.updates, a.checkout, a.admin, a.mgmt, a.dialog = nil, nil, nil, nil, nil, nil
 	a.tab = tabHome
 	a.screen = scrAuth
 	a.knownUpd = map[int64]bool{}
@@ -439,6 +443,8 @@ func (a *App) Layout(gtx C) D {
 		switch {
 		case a.admin != nil:
 			a.layoutAdmin(gtx)
+		case a.mgmt != nil:
+			a.layoutManagement(gtx)
 		case a.checkout != nil:
 			a.layoutCheckout(gtx)
 		default:
@@ -454,18 +460,25 @@ func (a *App) Layout(gtx C) D {
 // navSnap is where the user is in the app: tab, open sub-screen and checkout step.
 type navSnap struct {
 	admin    bool
+	mgmt     bool
 	tab      tab
 	checkout *checkoutState
 	step     int
 	atab     adminTab
 	sub      moreScreen
 	detail   *studentDetail
+	shot     *api.ClaimRow
+	mtab     mgmtTab
 }
 
 func (a *App) snap() navSnap {
-	n := navSnap{admin: a.admin != nil}
+	n := navSnap{admin: a.admin != nil, mgmt: a.mgmt != nil}
 	if s := a.admin; s != nil {
-		n.atab, n.sub, n.detail = s.tab, s.sub, s.detail
+		n.atab, n.sub, n.detail, n.shot = s.tab, s.sub, s.detail, s.shot
+		return n
+	}
+	if m := a.mgmt; m != nil {
+		n.mtab = m.tab
 		return n
 	}
 	n.tab, n.checkout = a.tab, a.checkout
@@ -479,7 +492,7 @@ func (a *App) snap() navSnap {
 // It runs at the start of every frame and compares with where the user was last frame.
 func (a *App) trackNav() {
 	cur := a.snap()
-	if a.screen != scrMain || !a.navSet || cur.admin != a.lastNav.admin {
+	if a.screen != scrMain || !a.navSet || cur.admin != a.lastNav.admin || cur.mgmt != a.lastNav.mgmt {
 		a.history, a.lastNav, a.navSet = nil, cur, a.screen == scrMain
 		return
 	}
@@ -489,12 +502,14 @@ func (a *App) trackNav() {
 	}
 	a.lastNav = cur
 	closed := prev.checkout != nil && prev.checkout != cur.checkout || prev.detail != nil && prev.detail != cur.detail ||
+		prev.shot != nil && prev.shot != cur.shot ||
 		cur.step == 3 && prev.step != 3 // details were sent: don't step back into the form
 	if closed {
 		// A screen that was closed is not reopened by back.
 		kept := a.history[:0]
 		for _, h := range a.history {
-			if !(prev.checkout != nil && h.checkout == prev.checkout || prev.detail != nil && h.detail == prev.detail) {
+			if !(prev.checkout != nil && h.checkout == prev.checkout || prev.detail != nil && h.detail == prev.detail ||
+				prev.shot != nil && h.shot == prev.shot) {
 				kept = append(kept, h)
 			}
 		}
@@ -522,7 +537,9 @@ func (a *App) goBack() bool {
 			a.checkout = nil
 		case a.admin != nil && a.admin.canGoBack():
 			a.admin.back()
-		case a.admin == nil && a.tab != tabHome:
+		case a.mgmt != nil && a.mgmt.tab != mgmtHome:
+			a.mgmt.tab = mgmtHome
+		case a.admin == nil && a.mgmt == nil && a.tab != tabHome:
 			a.tab = tabHome
 		default:
 			return false
@@ -533,7 +550,9 @@ func (a *App) goBack() bool {
 	h := a.history[n-1]
 	a.history = a.history[:n-1]
 	if s := a.admin; s != nil {
-		s.tab, s.sub, s.detail = h.atab, h.sub, h.detail
+		s.tab, s.sub, s.detail, s.shot = h.atab, h.sub, h.detail, h.shot
+	} else if m := a.mgmt; m != nil {
+		m.tab = h.mtab
 	} else {
 		if h.tab != a.tab {
 			a.reload()
@@ -562,8 +581,8 @@ func (a *App) handleBack(gtx C) {
 		switch {
 		case a.dialog != nil:
 			a.dialog = nil
-		case a.screen == scrAuth && (a.auth.register || a.auth.admin):
-			a.auth.register, a.auth.admin, a.auth.err = false, false, ""
+		case a.screen == scrAuth && (a.auth.register || a.auth.admin || a.auth.mgmt):
+			a.auth.register, a.auth.admin, a.auth.mgmt, a.auth.err = false, false, false, ""
 		case a.screen == scrMain && a.goBack():
 		default:
 			platform.MoveToBack()

@@ -36,7 +36,7 @@ func (a *App) layoutProfile(gtx C) D {
 		s.filled = true
 	}
 	if s.copyID.Clicked(gtx) {
-		a.copyText(gtx, fmt.Sprint(me.Student.ID), "Student ID copied")
+		a.copyText(gtx, me.Student.Code(), "Student ID copied")
 	}
 	if s.save.Clicked(gtx) && !s.savingProfile {
 		a.saveProfile()
@@ -65,8 +65,8 @@ func (a *App) layoutProfile(gtx C) D {
 		a.copyText(gtx, helpEmail, "Email copied")
 	}
 	if s.mail.Clicked(gtx) {
-		a.open(mailURL(fmt.Sprintf("Help needed - Student ID %d", me.Student.ID),
-			fmt.Sprintf("Hi G-CATION,\n\nI need help with: \n\nStudent ID: %d\nEmail: %s", me.Student.ID, me.Student.Email)))
+		a.open(mailURL("Help needed - "+studentRef(me.Student),
+			"Hi G-CATION,\n\nI need help with: \n\n"+studentLines(me.Student)))
 	}
 
 	items := []layout.Widget{
@@ -96,13 +96,16 @@ func (a *App) layoutProfile(gtx C) D {
 					}),
 					layout.Rigid(vspace(14)),
 					layout.Rigid(func(gtx C) D {
+						if me.Student.Code() == "" {
+							return a.th.muted(gtx, "Your Student ID is given when your first payment is verified.", 12.5)
+						}
 						gtx.Constraints.Min.X = 0
 						return s.copyID.Layout(gtx, func(gtx C) D {
 							return tinted(gtx, a.th.P.Lav, 99, 0, func(gtx C) D {
 								return layout.Inset{Left: 14, Right: 12, Top: 8, Bottom: 8}.Layout(gtx, func(gtx C) D {
 									return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 										layout.Rigid(func(gtx C) D {
-											return a.th.label(gtx, fmt.Sprintf("Student ID  %d", me.Student.ID), textOpt{size: 13.5, weight: font.Bold, color: a.th.P.Accent})
+											return a.th.label(gtx, "Student ID  "+me.Student.Code(), textOpt{size: 13.5, weight: font.Bold, color: a.th.P.Accent})
 										}),
 										layout.Rigid(hspace(8)),
 										layout.Rigid(func(gtx C) D { return iconSized(gtx, icCopy, 15, a.th.P.Accent) }),

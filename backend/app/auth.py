@@ -12,6 +12,8 @@ from .passwords import hash_password, verify_password  # noqa: F401 (re-exported
 
 STUDENT_COOKIE = "gc_session"
 ADMIN_COOKIE = "gc_admin"
+MANAGER_COOKIE = "gc_management"
+COOKIES = {"student": STUDENT_COOKIE, "admin": ADMIN_COOKIE, "management": MANAGER_COOKIE}
 STUDENT_TTL = 30 * 24 * 3600
 ADMIN_TTL = 12 * 3600
 
@@ -48,7 +50,9 @@ def record_failure(request: Request) -> None:
     _FAILED.setdefault(ip, []).append(time.time())
 
 
-def start_session(db: Connection, response: Response, role: str, student_id: int | None = None) -> str:
+def start_session(
+    db: Connection, response: Response, role: str, student_id: int | None = None, manager_id: int | None = None
+) -> str:
     """Creates a session, sets the browser cookie and returns the token (native apps use it as a Bearer token)."""
     token = secrets.token_urlsafe(32)
     ttl = ADMIN_TTL if role == "admin" else STUDENT_TTL
@@ -57,11 +61,11 @@ def start_session(db: Connection, response: Response, role: str, student_id: int
     if secrets.randbelow(20) == 0:
         db.execute("DELETE FROM sessions WHERE expires_at < %s", (now,))
     db.execute(
-        "INSERT INTO sessions (token_hash, role, student_id, expires_at) VALUES (%s, %s, %s, %s)",
-        (_token_hash(token), role, student_id, now + ttl),
+        "INSERT INTO sessions (token_hash, role, student_id, manager_id, expires_at) VALUES (%s, %s, %s, %s, %s)",
+        (_token_hash(token), role, student_id, manager_id, now + ttl),
     )
     response.set_cookie(
-        ADMIN_COOKIE if role == "admin" else STUDENT_COOKIE,
+        COOKIES[role],
         token,
         max_age=ttl,
         httponly=True,
@@ -76,14 +80,14 @@ def request_token(request: Request, role: str) -> str | None:
     header = request.headers.get("authorization", "")
     if header.lower().startswith("bearer "):
         return header[7:].strip() or None
-    return request.cookies.get(ADMIN_COOKIE if role == "admin" else STUDENT_COOKIE)
+    return request.cookies.get(COOKIES[role])
 
 
 def end_session(db: Connection, request: Request, response: Response, role: str) -> None:
     token = request_token(request, role)
     if token:
         db.execute("DELETE FROM sessions WHERE token_hash = %s AND role = %s", (_token_hash(token), role))
-    response.delete_cookie(ADMIN_COOKIE if role == "admin" else STUDENT_COOKIE)
+    response.delete_cookie(COOKIES[role])
 
 
 def end_other_sessions(db: Connection, request: Request, student_id: int) -> None:
@@ -92,6 +96,15 @@ def end_other_sessions(db: Connection, request: Request, student_id: int) -> Non
     db.execute(
         "DELETE FROM sessions WHERE student_id = %s AND token_hash <> %s",
         (student_id, _token_hash(token) if token else ""),
+    )
+
+
+def end_other_manager_sessions(db: Connection, request: Request, manager_id: int) -> None:
+    """Logs a management member out everywhere except this device (after a password change)."""
+    token = request_token(request, "management")
+    db.execute(
+        "DELETE FROM sessions WHERE manager_id = %s AND token_hash <> %s",
+        (manager_id, _token_hash(token) if token else ""),
     )
 
 
@@ -113,6 +126,18 @@ def current_student(request: Request, db: Connection = Depends(get_db)) -> dict:
     if not student:
         raise HTTPException(401, "Please log in.")
     return student
+
+
+def current_manager(request: Request, db: Connection = Depends(get_db)) -> dict:
+    token = request_token(request, "management")
+    manager = token and db.execute(
+        "SELECT m.* FROM sessions se JOIN managers m ON m.id = se.manager_id "
+        "WHERE se.token_hash = %s AND se.role = 'management' AND se.expires_at > %s AND m.revoked_at IS NULL",
+        (_token_hash(token), int(time.time())),
+    ).fetchone()
+    if not manager:
+        raise HTTPException(401, "Please log in.")
+    return manager
 
 
 def require_admin(request: Request, db: Connection = Depends(get_db)) -> None:

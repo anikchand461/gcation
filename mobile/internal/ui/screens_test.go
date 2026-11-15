@@ -41,14 +41,26 @@ func TestScreenshots(t *testing.T) {
 			setup func()
 		}{
 			{"01-login", func() { a.screen = scrAuth }},
-			{"02-register", func() { a.screen, a.auth.register = scrAuth, true }},
+			{"01b-login-management", func() { a.auth.mgmt = true }},
+			{"02b-register-management", func() { a.auth.register = true }},
+			{"02-register", func() { a.screen, a.auth.register, a.auth.mgmt = scrAuth, true, false }},
 			{"03-home", func() { a.screen, a.tab = scrMain, tabHome }},
+			{"03b-home-unpaid", func() { a.me.Student.StudentCode = nil }},
 			{"04-courses", func() { a.tab = tabCourses }},
 			{"05-updates", func() { a.tab = tabUpdates }},
 			{"06-profile", func() { a.tab = tabProfile }},
 			{"07-checkout-pay", func() { a.openCheckout(a.me.Courses[1]) }},
 			{"08-checkout-details", func() { a.checkout.step = 2 }},
 			{"08b-checkout-paid-using", func() { a.checkout.method, a.checkout.methodOpen = 1, true }},
+			{"08c-checkout-screenshot", func() {
+				c := a.checkout
+				c.methodOpen = false
+				c.ref.Ed.SetText("412345678901")
+				c.referralID.Ed.SetText("GCM001")
+				c.shot, c.shotPreview = []byte{1}, testShot()
+				l := a.list("checkout2")
+				l.Position.First, l.Position.Offset = 5, 1250*pxPerDp
+			}},
 			{"09-checkout-call", func() { a.checkout.step = 3 }},
 			{"10-checkout-status", func() { a.openCheckout(a.me.Courses[2]) }},
 			{"11-splash", func() { a.checkout, a.screen = nil, scrSplash }},
@@ -58,6 +70,12 @@ func TestScreenshots(t *testing.T) {
 			{"15-admin-detail", func() { a.openStudent(1, 0); a.admin.detail.data = testDetail(); a.admin.detail.pickCourse(1) }},
 			{"16-admin-payments", func() { a.admin.detail, a.admin.tab = nil, aPayments }},
 			{"17-admin-updates", func() { a.admin.tab = aUpdates }},
+			{"17b-admin-updates-audience", func() {
+				a.admin.compose.audOpen, a.admin.compose.toTeam, a.admin.compose.toAll = true, true, false
+				a.admin.compose.toCourse[1] = true
+				l := a.list("a.updates")
+				l.Position.First, l.Position.Offset = 2, 520*pxPerDp
+			}},
 			{"18-admin-more", func() { a.admin.tab = aMore }},
 			{"19-admin-qr", func() { a.admin.sub = moreQR; a.admin.more.fill(a.admin) }},
 			{"20-admin-course", func() { a.editCourse(a.admin.courses[0]) }},
@@ -65,6 +83,18 @@ func TestScreenshots(t *testing.T) {
 				a.admin.sub = moreNone
 				a.confirm("Give access?", "Anik Chand gets \"Interview Skills Bootcamp\" for 90 days. Amount recorded: ₹1,499.", "Give access", false, func() {})
 			}},
+			{"22-admin-management", func() { a.dialog = nil; a.admin.sub = moreManagement }},
+			{"23-admin-account", func() { a.admin.sub = moreAccount; a.admin.more.fill(a.admin) }},
+			{"24-admin-screenshot", func() {
+				a.admin.sub, a.admin.tab = moreNone, aPayments
+				c := a.admin.claims[0]
+				a.imgs[c.ScreenshotPath()] = &imgEntry{op: testShot(), ready: true}
+				a.admin.shot = &c
+			}},
+			{"25-mgmt-home", func() { a.admin = nil; a.mgmt = testManagement(a) }},
+			{"26-mgmt-courses", func() { a.mgmt.tab = mgmtCourses }},
+			{"26b-mgmt-updates", func() { a.mgmt.tab = mgmtUpdates }},
+			{"27-mgmt-profile", func() { a.mgmt.tab = mgmtProfile }},
 		}
 		for _, s := range shots {
 			s.setup()
@@ -108,7 +138,7 @@ func testApp(t *testing.T, dark bool) *App {
 	amt := 1499.0
 	course := "Online Spoken English Batch"
 	a.me = &api.Me{
-		Student: api.Student{ID: 4, Name: "Anik Chand", Email: "anikchand461@gmail.com", Phone: "9153772355", CreatedAt: now - 30*86400},
+		Student: api.Student{ID: 4, Name: "Anik Chand", Email: "anikchand461@gmail.com", Phone: "9153772355", CreatedAt: now - 30*86400, StudentCode: ptr("GCS003")},
 		Courses: []api.Course{
 			{ID: 1, Title: course, Description: "A one-year online learning package with live classes, practice and communication skill development.",
 				Price: 3099, DefaultDays: 365, IsOpen: true, Access: api.Access{Status: "active", Since: now - 20*86400, Until: now + 345*86400, DaysLeft: 345},
@@ -118,7 +148,8 @@ func testApp(t *testing.T, dark bool) *App {
 				Price:    1499, DefaultDays: 90, IsOpen: true, Access: api.Access{Status: "none"}},
 			{ID: 3, Title: "Public Speaking Masterclass", Description: "Speak on stage with confidence.",
 				Price: 2499, DefaultDays: 180, IsOpen: true, Access: api.Access{Status: "none"},
-				PendingClaim: &api.Claim{QRSlot: "secondary", PayerName: "Anik Chand", Method: "PhonePe", Amount: &amt, PaidOn: "2026-11-13", Reference: "412345678901", CreatedAt: now - 3600}},
+				PendingClaim: &api.Claim{QRSlot: "secondary", PayerName: "Anik Chand", Method: "PhonePe", Amount: &amt, PaidOn: "2026-11-13", Reference: "412345678901",
+					ReferralID: "GCM001", HasScreenshot: true, CreatedAt: now - 3600}},
 		},
 		Payment: api.Payment{ContactPhone: "+91 9091455863", Methods: []api.Method{
 			{Slot: "primary", Label: "Primary QR", UPIID: "gcation@okaxis", PayeeName: "G-CATION"},
@@ -145,7 +176,8 @@ func testAdmin(a *App) *adminState {
 	amt := 1499.0
 	s.ov = &api.Overview{Students: 12, ActiveStudents: 8, PendingClaims: 2, ExpiringSoon: 1, TotalCollected: 35990, CollectedThisMonth: 7598}
 	s.claims = []api.ClaimRow{
-		{ID: 1, StudentID: 2, CourseTitle: "Interview Skills Bootcamp", QRSlot: "secondary", Method: "PhonePe", Reference: "412345678901", Amount: &amt, CreatedAt: now - 1800, StudentName: "Priya Sen", StudentPhone: "9000000001"},
+		{ID: 1, StudentID: 2, CourseTitle: "Interview Skills Bootcamp", QRSlot: "secondary", Method: "PhonePe", Reference: "412345678901", Amount: &amt, CreatedAt: now - 1800, StudentName: "Priya Sen", StudentPhone: "9000000001",
+			ReferralID: "GCM001", ReferralName: ptr("Rahul Mitra"), HasScreenshot: true},
 		{ID: 2, StudentID: 3, CourseTitle: "Online Spoken English Batch", QRSlot: "primary", Method: "GPay", CreatedAt: now - 7200, StudentName: "Rahul Das"},
 	}
 	row := func(id int64, name, status string, days int, pending int) api.StudentRow {
@@ -163,8 +195,8 @@ func testAdmin(a *App) *adminState {
 	s.payments = []api.Enrollment{{ID: 1, StudentID: 1, CourseTitle: "Online Spoken English Batch", StartAt: now - 20*86400, EndAt: now + 345*86400, AmountPaid: 3099, GrantedAt: now - 20*86400, ReceiptNo: "GC-2026-00001", StudentName: "Anik Chand"}}
 	cid := int64(1)
 	title := "Online Spoken English Batch"
-	s.anns = []api.Announcement{{ID: 1, Title: "Live class today, 7:00 PM", Message: "Please join 5 minutes early.", LinkURL: "https://meet.google.com/abc-defg-hij", CourseID: &cid, CourseTitle: &title, CreatedAt: now - 600}}
-	s.audience = map[string]int{"all": 8, "1": 7, "2": 1}
+	s.anns = []api.Announcement{{ID: 1, Title: "Live class today, 7:00 PM", Message: "Please join 5 minutes early.", LinkURL: "https://meet.google.com/abc-defg-hij", ToManagement: true, CourseIDs: []int64{cid}, AudienceLabel: "Management · " + title, CreatedAt: now - 600}}
+	s.audience = map[string]int{"all": 8, "management": 3, "1": 7, "2": 1}
 	s.courses = []api.AdminCourse{
 		{ID: 1, Title: title, Description: "A one-year online learning package.", Features: "Live online classes\nWeekly practice", Price: 3099, DefaultDays: 365, IsActive: true},
 		{ID: 2, Title: "Interview Skills Bootcamp", Price: 1499, DefaultDays: 90, IsActive: false},
@@ -174,7 +206,43 @@ func testAdmin(a *App) *adminState {
 		{Method: api.Method{Slot: "secondary", Label: "Backup QR (PhonePe)", UPIID: "gcation.backup@ybl", PayeeName: "G-CATION"}, IsActive: true},
 	}
 	s.phone, s.username = "+91 9091455863", "admin"
+	s.students[0].StudentCode = ptr("GCS001")
+	s.invite = "GCTEAM2026"
+	revoked := now - 86400
+	s.managers = []api.Manager{
+		{ID: 1, Code: "GCM001", Name: "Rahul Mitra", Email: "rahul@example.com", Phone: "9000000002", CreatedAt: now - 20*86400, Approved: 4, Pending: 1},
+		{ID: 2, Code: "GCM002", Name: "Sneha Pal", Email: "sneha@example.com", CreatedAt: now - 9*86400, RevokedAt: &revoked},
+	}
 	return s
+}
+
+func testManagement(a *App) *mgmtState {
+	a.startManagementState()
+	m := a.mgmt
+	m.me = &api.ManagerMe{
+		Manager: api.Manager{ID: 1, Code: "GCM001", Name: "Rahul Mitra", Email: "rahul@example.com", Phone: "9000000002", CreatedAt: time.Now().Unix() - 20*86400},
+		Courses: []api.Course{a.me.Courses[0], a.me.Courses[1]},
+		Unread:  1,
+	}
+	now := time.Now().Unix()
+	team := "Management team"
+	m.updates = &api.Updates{SeenAt: now - 7200, Items: []api.Update{
+		{ID: 9, Title: "Team meeting on Sunday, 11 AM", Message: "We will plan the new batch. Please bring your referral list.",
+			LinkURL: "https://meet.google.com/xyz-abcd-efg", LinkLabel: "Join Google Meet", CreatedAt: now - 900, CourseTitle: &team},
+		{ID: 8, Title: "New brochure is ready", Message: "Share it with students who ask about prices.", CreatedAt: now - 3*86400, CourseTitle: &team},
+	}}
+	return m
+}
+
+func ptr(s string) *string { return &s }
+
+// testShot is a stand-in payment screenshot: a phone-shaped green image.
+func testShot() paint.ImageOp {
+	img := image.NewRGBA(image.Rect(0, 0, 90, 180))
+	for i := range img.Pix {
+		img.Pix[i] = []byte{16, 185, 129, 255}[i%4]
+	}
+	return paint.NewImageOp(img)
 }
 
 func testDetail() *api.StudentDetail {
@@ -196,7 +264,8 @@ func testDetail() *api.StudentDetail {
 			DefaultDays int        `json:"default_days"`
 			Access      api.Access `json:"access"`
 		}{2, "Interview Skills Bootcamp", 1499, 90, api.Access{Status: "none"}})
-	d.Claims = []api.ClaimRow{{ID: 1, StudentID: 2, CourseID: 2, CourseTitle: "Interview Skills Bootcamp", QRSlot: "secondary", Method: "PhonePe", Reference: "412345678901", Amount: &amt, Status: "pending", CreatedAt: now - 1800}}
+	d.Claims = []api.ClaimRow{{ID: 1, StudentID: 2, CourseID: 2, CourseTitle: "Interview Skills Bootcamp", QRSlot: "secondary", Method: "PhonePe", Reference: "412345678901", Amount: &amt, Status: "pending", CreatedAt: now - 1800,
+		ReferredBy: "Rahul", ReferralID: "GCM001", ReferralName: ptr("Rahul Mitra"), HasScreenshot: true}}
 	return d
 }
 

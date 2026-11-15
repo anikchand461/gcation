@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/base64"
 	"fmt"
 	"image"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/layout"
+	"gioui.org/op/paint"
 	"gioui.org/widget"
 
 	"gcation/mobile/internal/api"
@@ -27,9 +29,12 @@ type checkoutState struct {
 	call, copyPhone                                                           [2]widget.Clickable
 	seg                                                                       [2]widget.Clickable
 	pick                                                                      [2]widget.Clickable
-	payer, methodOther, amount, date, ref, age, referredBy                    *field
+	pickShot                                                                  widget.Clickable
+	payer, methodOther, amount, date, ref, age, referredBy, referralID        *field
 	method                                                                    int // index into payApps, -1 until chosen
 	methodOpen                                                                bool
+	shot                                                                      []byte        // payment screenshot to upload
+	shotPreview                                                               paint.ImageOp // the same screenshot, shown on the form
 }
 
 // payApps fills the "Paid using" dropdown; the last entry asks the student to type it.
@@ -47,12 +52,13 @@ func (s *checkoutState) init(a *App, c api.Course) {
 	s.age = newField("Your age", "", false, key.HintNumeric)
 	s.age.Ed.Filter = "0123456789"
 	s.referredBy = newField("Referred by (optional)", "Name of the person who told you about us", false, key.HintAny)
+	s.referralID = newField("Referral ID (optional)", "e.g. GCM001", false, key.HintAny)
 	s.amount = newField("Amount paid (in rupees)", "", false, key.HintNumeric)
 	s.amount.Ed.SetText(strconv.FormatFloat(c.Price, 'f', -1, 64))
 	s.amount.Ed.Filter = "0123456789."
 	s.date = newField("Date paid (YYYY-MM-DD)", "", false, key.HintAny)
 	s.date.Ed.SetText(time.Now().In(ist).Format("2006-01-02"))
-	s.ref = newField("UTR / transaction ID (optional)", "12-digit number from your UPI app", false, key.HintNumeric)
+	s.ref = newField("UTR / transaction ID", "12-digit number from your UPI app", false, key.HintAny)
 	if m := a.me.Payment.Methods; len(m) > 0 {
 		s.slot = m[0].Slot
 	}
@@ -245,7 +251,7 @@ func (a *App) stepPay(gtx C, c api.Course) D {
 		a.copyText(gtx, m.UPIID, "UPI ID copied")
 	}
 	if s.payApp.Clicked(gtx) {
-		a.open(upiURL(m.UPIID, m.PayeeName, c.Price, a.me.Student.ID))
+		a.open(upiURL(m.UPIID, m.PayeeName, c.Price, a.upiNote()))
 	}
 	if s.iPaid.Clicked(gtx) {
 		s.step = 2
@@ -378,7 +384,7 @@ func (a *App) qrFrame(gtx C, c api.Course, m api.Method) D {
 			}
 		} else if m.UPIID != "" {
 			gtx.Constraints = layout.Exact(size)
-			widget.Image{Src: a.qr(upiURL(m.UPIID, m.PayeeName, c.Price, a.me.Student.ID)), Fit: widget.Contain, Position: layout.Center}.Layout(gtx)
+			widget.Image{Src: a.qr(upiURL(m.UPIID, m.PayeeName, c.Price, a.upiNote())), Fit: widget.Contain, Position: layout.Center}.Layout(gtx)
 		}
 		return D{Size: image.Pt(side, side)}
 	})
@@ -420,6 +426,9 @@ func (a *App) stepDetails(gtx C, c api.Course) D {
 	}
 	if s.send.Clicked(gtx) && !s.busy {
 		a.sendClaim(c)
+	}
+	if s.pickShot.Clicked(gtx) {
+		a.pickScreenshot()
 	}
 	return a.th.card(gtx, 18, func(gtx C) D {
 		kids := []layout.FlexChild{
@@ -477,7 +486,8 @@ func (a *App) stepDetails(gtx C, c api.Course) D {
 		if s.otherMethod() {
 			fields(s.methodOther)
 		}
-		fields(s.amount, s.date, s.ref, s.age, s.referredBy)
+		fields(s.amount, s.date, s.ref, s.age, s.referredBy, s.referralID)
+		kids = append(kids, layout.Rigid(vspace(14)), layout.Rigid(func(gtx C) D { return a.screenshotPicker(gtx) }))
 		kids = append(kids,
 			layout.Rigid(func(gtx C) D {
 				if s.err == "" {
@@ -503,6 +513,7 @@ func (a *App) sendClaim(c api.Course) {
 	in := api.ClaimIn{
 		CourseID: c.ID, QRSlot: s.slot, PayerName: s.payer.Text(),
 		PaidOn: s.date.Text(), Reference: s.ref.Text(), ReferredBy: s.referredBy.Text(),
+		ReferralID: strings.ToUpper(strings.ReplaceAll(s.referralID.Text(), " ", "")),
 	}
 	switch {
 	case s.method < 0:
@@ -517,12 +528,25 @@ func (a *App) sendClaim(c api.Course) {
 		s.err = "Type the app or bank you paid with."
 		return
 	}
+	if len(in.Reference) < 6 {
+		s.err = "Enter the UTR / transaction ID from your payment app."
+		return
+	}
 	age, err := strconv.Atoi(s.age.Text())
 	if err != nil || age < 5 || age > 100 {
 		s.err = "Enter your age (5 to 100)."
 		return
 	}
 	in.Age = &age
+	if in.ReferralID != "" && !referralRE.MatchString(in.ReferralID) {
+		s.err = "Referral ID looks like GCM001. Check it, or leave it empty."
+		return
+	}
+	if len(s.shot) == 0 {
+		s.err = "Upload the screenshot of your payment."
+		return
+	}
+	in.Screenshot = base64.StdEncoding.EncodeToString(s.shot)
 	if amt := strings.TrimSpace(s.amount.Ed.Text()); amt != "" {
 		v, err := strconv.ParseFloat(amt, 64)
 		if err != nil {
@@ -565,7 +589,11 @@ func (a *App) stepCall(gtx C, c api.Course) D {
 			layout.Rigid(func(gtx C) D { return centered(gtx, "Almost done!", a.th, textOpt{size: 21, weight: font.Bold}) }),
 			layout.Rigid(vspace(6)),
 			layout.Rigid(func(gtx C) D {
-				return centered(gtx, fmt.Sprintf("Call or email us with your Student ID %d. We unlock your course right after.", a.me.Student.ID),
+				msg := "Call or email us from your registered email " + a.me.Student.Email + ". We unlock your course right after."
+				if code := a.me.Student.Code(); code != "" {
+					msg = "Call or email us with your Student ID " + code + ". We unlock your course right after."
+				}
+				return centered(gtx, msg,
 					a.th, textOpt{size: 14, color: a.th.P.Muted})
 			}),
 			layout.Rigid(vspace(16)),
@@ -592,9 +620,9 @@ func (a *App) callBox(gtx C, c api.Course) D {
 	}
 	if s.mail.Clicked(gtx) {
 		st := a.me.Student
-		a.open(mailURL(fmt.Sprintf("Payment for %s - Student ID %d", c.Title, st.ID),
-			fmt.Sprintf("Hi G-CATION,\n\nI have paid %s for \"%s\".\nStudent ID: %d\nEmail: %s\n\nPlease verify my payment.",
-				rupees(c.Price), c.Title, st.ID, st.Email)))
+		a.open(mailURL(fmt.Sprintf("Payment for %s - %s", c.Title, studentRef(st)),
+			fmt.Sprintf("Hi G-CATION,\n\nI have paid %s for \"%s\".\n%s\n\nPlease verify my payment.",
+				rupees(c.Price), c.Title, studentLines(st))))
 	}
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
 	return tinted(gtx, a.th.P.Lav, 16, 16, func(gtx C) D {
@@ -641,7 +669,7 @@ func (a *App) statusPanel(gtx C, c api.Course) []layout.Widget {
 			ic          any
 		}
 		rows := []row{
-			{1, "Account created", fmt.Sprintf("Student ID %d", a.me.Student.ID), nil},
+			{1, "Account created", studentRef(a.me.Student), nil},
 			{1, "Payment details sent", fmtDateTime(p.CreatedAt), nil},
 			{2, "Admin verification", "Usually within a few hours", nil},
 			{0, "Course unlocks", "Class links appear in Updates", nil},
@@ -697,7 +725,7 @@ func (a *App) statusPanel(gtx C, c api.Course) []layout.Widget {
 		if p.Age != nil {
 			age = strconv.Itoa(*p.Age)
 		}
-		for _, kv := range [][2]string{{"Payer", p.PayerName}, {"Using", p.Method}, {"Date", p.PaidOn}, {"UTR", p.Reference}, {"Age", age}, {"Referred", p.ReferredBy}} {
+		for _, kv := range [][2]string{{"Payer", p.PayerName}, {"Using", p.Method}, {"Date", p.PaidOn}, {"UTR", p.Reference}, {"Age", age}, {"Referred", p.ReferredBy}, {"Referral ID", p.ReferralID}, {"Screenshot", map[bool]string{true: "Attached"}[p.HasScreenshot]}} {
 			if kv[1] != "" {
 				lines = append(lines, kv)
 			}
@@ -710,7 +738,7 @@ func (a *App) statusPanel(gtx C, c api.Course) []layout.Widget {
 					return layout.Inset{Bottom: 6}.Layout(gtx, func(gtx C) D {
 						return layout.Flex{}.Layout(gtx,
 							layout.Rigid(func(gtx C) D {
-								gtx.Constraints.Min.X = gtx.Dp(76)
+								gtx.Constraints.Min.X = gtx.Dp(90)
 								return a.th.muted(gtx, kv[0], 13.5)
 							}),
 							layout.Flexed(1, func(gtx C) D { return a.th.label(gtx, kv[1], textOpt{size: 13.5, weight: font.SemiBold}) }),
@@ -722,7 +750,7 @@ func (a *App) statusPanel(gtx C, c api.Course) []layout.Widget {
 				kids = append(kids, layout.Rigid(func(gtx C) D {
 					return layout.Flex{}.Layout(gtx,
 						layout.Rigid(func(gtx C) D {
-							gtx.Constraints.Min.X = gtx.Dp(76)
+							gtx.Constraints.Min.X = gtx.Dp(90)
 							return a.th.muted(gtx, "Amount", 13.5)
 						}),
 						layout.Rigid(func(gtx C) D { return a.th.money(gtx, *p.Amount, textOpt{size: 13.5, weight: font.SemiBold}) }),

@@ -1,7 +1,7 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 UPI_RE = re.compile(r"^[\w.\-]{2,256}@[A-Za-z][A-Za-z0-9]{1,63}$")
@@ -36,6 +36,22 @@ class RegisterIn(BaseModel):
         v = v.strip().lower()
         if not EMAIL_RE.match(v):
             raise ValueError("Enter a valid email address.")
+        return v
+
+
+class ManagerRegisterIn(RegisterIn):
+    invite_code: str = Field(max_length=60)  # the code the admin gives the management team
+
+
+class InviteCodeIn(BaseModel):
+    invite_code: str = Field(default="", max_length=60)  # empty closes management registration
+
+    @field_validator("invite_code")
+    @classmethod
+    def no_spaces(cls, v: str) -> str:
+        v = v.strip()
+        if v and (len(v) < 4 or any(ch.isspace() for ch in v)):
+            raise ValueError("Use at least 4 characters and no spaces.")
         return v
 
 
@@ -125,11 +141,22 @@ class ClaimIn(BaseModel):
     reference: str = Field(default="", max_length=80)
     age: int | None = Field(default=None, ge=5, le=100)
     referred_by: str = Field(default="", max_length=80)
+    referral_id: str = Field(default="", max_length=20)  # Management ID, e.g. GCM001
+    # Base64 payment screenshot (PNG, JPEG or WEBP). The website requires it; older app
+    # versions do not send one yet, so it stays optional here.
+    screenshot: str = Field(default="", max_length=3_000_000)
 
-    @field_validator("payer_name", "method", "paid_on", "reference", "referred_by")
+    @field_validator("payer_name", "method", "paid_on", "reference", "referred_by", "referral_id")
     @classmethod
     def strip(cls, v: str) -> str:
         return v.strip()
+
+    @field_validator("reference")
+    @classmethod
+    def reference_given(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("Enter the UTR / transaction ID from your payment app.")
+        return v
 
 
 class GrantIn(BaseModel):
@@ -197,7 +224,22 @@ class AnnouncementIn(BaseModel):
     message: str = Field(default="", max_length=3000)
     link_url: str = Field(default="", max_length=500)
     link_label: str = Field(default="", max_length=60)
-    course_id: int | None = None
+    # Who sees it: any mix of the management team, every paid student and the students of some courses.
+    to_management: bool = False
+    to_all_students: bool | None = None
+    course_ids: list[int] | None = Field(default=None, max_length=100)
+    course_id: int | None = None  # older apps send one course (or none = every paid student)
+
+    @model_validator(mode="after")
+    def audience(self):
+        if self.to_all_students is None and self.course_ids is None:  # older app
+            self.to_all_students = self.course_id is None
+            self.course_ids = [self.course_id] if self.course_id is not None else []
+        self.to_all_students = bool(self.to_all_students)
+        self.course_ids = sorted(set(self.course_ids or []))
+        if not (self.to_management or self.to_all_students or self.course_ids):
+            raise ValueError("Choose who should see this update.")
+        return self
 
     @field_validator("title", "message", "link_label")
     @classmethod

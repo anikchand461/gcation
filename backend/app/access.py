@@ -1,9 +1,12 @@
 """Course access rules and small shared helpers."""
 
+import re
 import time
 
 from fastapi import HTTPException
 from psycopg import Connection
+
+from .db import STUDENT_NO_LOCK
 
 DAY = 24 * 3600
 NO_ACCESS = {"status": "none", "until": None}
@@ -72,8 +75,78 @@ def get_setting(db: Connection, key: str) -> str:
     return row["value"] if row else ""
 
 
+def _code(prefix: str, n: int | None) -> str | None:
+    return f"{prefix}{n:03d}" if n is not None else None
+
+
+def student_code(student_no: int | None) -> str | None:
+    """Student ID shown to people, e.g. GCS001. None until the student's first payment is approved."""
+    return _code("GCS", student_no)
+
+
+def manager_code(manager_id: int | None) -> str | None:
+    """Management ID, e.g. GCM001. Students enter it as the Referral ID when they pay."""
+    return _code("GCM", manager_id)
+
+
+def number_from_code(prefix: str, text: str) -> int | None:
+    """'gcs 007' or '7' -> 7 for prefix GCS; None if the text is not such an ID."""
+    m = re.fullmatch(rf"(?:{prefix})?0*(\d{{1,9}})", re.sub(r"\s+", "", text).upper())
+    return int(m.group(1)) if m else None
+
+
+def give_student_no(db: Connection, student_id: int) -> None:
+    """Gives the student the next Student ID if they have none. Call inside a transaction when a payment is approved."""
+    db.execute("SELECT pg_advisory_xact_lock(%s)", (STUDENT_NO_LOCK,))
+    db.execute(
+        "UPDATE students SET student_no = (SELECT COALESCE(MAX(student_no), 0) + 1 FROM students) "
+        "WHERE id = %s AND student_no IS NULL",
+        (student_id,),
+    )
+
+
 def student_out(s: dict) -> dict:
-    return {k: s[k] for k in ("id", "name", "email", "phone", "created_at")}
+    return {k: s[k] for k in ("id", "name", "email", "phone", "created_at")} | {"student_code": student_code(s["student_no"])}
+
+
+def manager_out(m: dict) -> dict:
+    return {k: m[k] for k in ("id", "name", "email", "phone", "created_at", "revoked_at")} | {"manager_code": manager_code(m["id"])}
+
+
+# What students, management and the admin see of an update. Needs `FROM announcements a`.
+ANNOUNCEMENT_COLUMNS = (
+    "a.id, a.title, a.message, a.link_url, a.link_label, a.to_management, a.to_all_students, a.course_ids, "
+    "a.created_at, a.updated_at"
+)
+
+
+def audience_label(a: dict, titles: dict[int, str]) -> str:
+    """e.g. 'Management · All paid students' or 'Management · Course A, Course B'."""
+    parts = ["Management"] if a["to_management"] else []
+    if a["to_all_students"]:
+        parts.append("All paid students")
+    elif a["course_ids"]:
+        parts.append(", ".join(titles.get(cid, "Deleted course") for cid in a["course_ids"]))
+    return " · ".join(parts)
+
+
+def course_titles(db: Connection) -> dict[int, str]:
+    return {c["id"]: c["title"] for c in db.execute("SELECT id, title FROM courses")}
+
+
+# Payment note columns, without the screenshot bytes (the admin fetches the image separately).
+# Needs `FROM payment_claims p`; pass rows through claim_out().
+CLAIM_COLUMNS = (
+    "p.id, p.student_id, p.course_id, p.qr_slot, p.payer_name, p.method, p.amount, p.paid_on, p.reference, "
+    "p.age, p.referred_by, p.manager_id, p.status, p.created_at, p.screenshot IS NOT NULL AS has_screenshot"
+)
+
+
+def claim_out(c: dict) -> dict:
+    """Swaps the internal manager_id for the Referral ID people see (GCM001, or '' when none)."""
+    out = dict(c)
+    out["referral_id"] = manager_code(out.pop("manager_id")) or ""
+    return out
 
 
 def method_out(m: dict) -> dict:

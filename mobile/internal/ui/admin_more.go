@@ -22,7 +22,9 @@ import (
 type composer struct {
 	editing                 int64 // 0 = new update
 	title, msg, link, label *field
-	audience                int // 0 = all paid students, i = course i-1
+	toTeam, toAll           bool           // management team; every paid student
+	toCourse                map[int64]bool // students of these courses
+	audOpen                 bool           // the "Who should see this?" list is open
 	post, cancel            widget.Clickable
 }
 
@@ -31,10 +33,11 @@ func (c *composer) init() {
 	c.msg = newArea("Message (optional)", "Instructions, timings, rules…")
 	c.link = newField("Link (optional)", "https://meet.google.com/…", false, key.HintURL)
 	c.label = newField("Button text", "Join Google Meet", false, key.HintAny)
+	c.toAll, c.toCourse = true, map[int64]bool{}
 }
 
 func (c *composer) reset() {
-	c.editing, c.audience = 0, 0
+	c.editing, c.toTeam, c.toAll, c.toCourse, c.audOpen = 0, false, true, map[int64]bool{}, false
 	for _, f := range []*field{c.title, c.msg, c.link, c.label} {
 		f.Ed.SetText("")
 	}
@@ -63,13 +66,29 @@ func (a *App) layoutAdminUpdates(gtx C) D {
 			c.link.Ed.SetText(t.link)
 		}
 	}
-	audLabels := []string{fmt.Sprintf("All paid students (%d)", s.audience["all"])}
+	// Audience list: 0 management team, 1 every paid student, then one per course.
+	audLabels := []string{fmt.Sprintf("Management team (%d)", s.audience["management"]), fmt.Sprintf("All paid students (%d)", s.audience["all"])}
 	for _, co := range courses {
-		audLabels = append(audLabels, fmt.Sprintf("%s (%d)", co.Title, s.audience[fmt.Sprint(co.ID)]))
+		audLabels = append(audLabels, fmt.Sprintf("%s students (%d)", co.Title, s.audience[fmt.Sprint(co.ID)]))
 	}
-	for i := range audLabels {
-		if a.clk(fmt.Sprint("aud", i)).Clicked(gtx) {
-			c.audience = i
+	audChecked := func(i int) bool {
+		switch i {
+		case 0:
+			return c.toTeam
+		case 1:
+			return c.toAll
+		}
+		return c.toAll || c.toCourse[courses[i-2].ID]
+	}
+	audLocked := func(i int) bool { return i >= 2 && c.toAll } // covered by "All paid students"
+	audToggle := func(i int) {
+		switch i {
+		case 0:
+			c.toTeam = !c.toTeam
+		case 1:
+			c.toAll = !c.toAll
+		default:
+			c.toCourse[courses[i-2].ID] = !c.toCourse[courses[i-2].ID]
 		}
 	}
 	if c.cancel.Clicked(gtx) {
@@ -103,9 +122,8 @@ func (a *App) layoutAdminUpdates(gtx C) D {
 				}
 				kids = append(kids,
 					layout.Rigid(vspace(12)),
-					layout.Rigid(func(gtx C) D { return a.smallLabel(gtx, "Who should see this?") }),
 					layout.Rigid(func(gtx C) D {
-						return a.chips(gtx, "audience", audLabels, func(i int) bool { return i == c.audience }, func(i int) *widget.Clickable { return a.clk(fmt.Sprint("aud", i)) })
+						return a.checkDropdown(gtx, "audience", "Who should see this?", "Choose who sees this update", audLabels, audChecked, audLocked, audToggle, &c.audOpen)
 					}),
 					layout.Rigid(vspace(16)),
 					layout.Rigid(func(gtx C) D {
@@ -141,26 +159,21 @@ func (a *App) layoutAdminUpdates(gtx C) D {
 			c.msg.Ed.SetText(an.Message)
 			c.link.Ed.SetText(an.LinkURL)
 			c.label.Ed.SetText(an.LinkLabel)
-			c.audience = 0
-			for i, co := range courses {
-				if an.CourseID != nil && *an.CourseID == co.ID {
-					c.audience = i + 1
-				}
+			c.toTeam, c.toAll, c.toCourse, c.audOpen = an.ToManagement, an.ToAllStudents, map[int64]bool{}, false
+			for _, id := range an.CourseIDs {
+				c.toCourse[id] = true
 			}
 			a.list("a.updates").Position.First = 0
 			a.list("a.updates").Position.Offset = 0
 		}
 		if del.Clicked(gtx) {
-			a.confirm("Delete this update?", "Students will no longer see it.", "Delete", true, func() {
+			a.confirm("Delete this update?", "Nobody will see it any more.", "Delete", true, func() {
 				a.adminDo(func() error { return a.api.DeleteAnnouncement(an.ID) }, "Update deleted.", nil)
 			})
 		}
 		items = append(items, func(gtx C) D {
 			return a.th.card(gtx, 16, func(gtx C) D {
-				who := "All paid students"
-				if an.CourseTitle != nil {
-					who = *an.CourseTitle
-				}
+				who := an.AudienceLabel
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx C) D { return a.th.label(gtx, an.Title, textOpt{size: 15.5, weight: font.Bold}) }),
 					layout.Rigid(func(gtx C) D { return a.th.muted(gtx, fmtDateTime(an.CreatedAt)+" · "+who, 12) }),
@@ -210,15 +223,28 @@ func (a *App) submitAnnouncement(courses []api.AdminCourse) {
 		a.toast("Paste the full group or meeting link, not just the website.", true)
 		return
 	}
-	reach := s.audience["all"]
-	if c.audience > 0 {
-		id := courses[c.audience-1].ID
-		in.CourseID = &id
-		reach = s.audience[fmt.Sprint(id)]
+	in.ToManagement, in.ToAllStudents, in.CourseIDs = c.toTeam, c.toAll, []int64{}
+	var who []string
+	if c.toTeam {
+		who = append(who, "The management team")
+	}
+	if c.toAll {
+		who = append(who, "all paid students")
+	} else {
+		for _, co := range courses {
+			if c.toCourse[co.ID] {
+				in.CourseIDs = append(in.CourseIDs, co.ID)
+				who = append(who, co.Title+" students")
+			}
+		}
+	}
+	if len(who) == 0 {
+		a.toast("Choose who should see this update.", true)
+		return
 	}
 	id := c.editing
 	run := func() {
-		msg := "Update posted to students."
+		msg := "Update posted."
 		if id != 0 {
 			msg = "Update saved."
 		}
@@ -228,7 +254,7 @@ func (a *App) submitAnnouncement(courses []api.AdminCourse) {
 		run()
 		return
 	}
-	a.confirm("Post this update?", fmt.Sprintf("%s will see it right away.", plural(reach, "paid student")), "Post", false, run)
+	a.confirm("Post this update?", strings.Join(who, ", ")+" will see it right away.", "Post", false, run)
 }
 
 // ---------- More ----------
@@ -236,10 +262,12 @@ func (a *App) submitAnnouncement(courses []api.AdminCourse) {
 type moreState struct {
 	phone                                   *field
 	user, newPw, confirmPw, currentPw       *field
+	invite                                  *field // management referral code
 	methods                                 map[string]*methodForm
 	course                                  courseForm
 	rows                                    [8]widget.Clickable
 	back, savePhone, saveAccount, addCourse widget.Clickable
+	saveInvite, copyLink                    widget.Clickable
 }
 
 type methodForm struct {
@@ -261,6 +289,7 @@ func (m *moreState) init() {
 	m.newPw = newField("New password (optional)", "Leave empty to keep it", true, key.HintAny)
 	m.confirmPw = newField("Confirm new password", "", true, key.HintAny)
 	m.currentPw = newField("Current password", "Needed to save", true, key.HintAny)
+	m.invite = newField("Referral code", "e.g. GCTEAM2026", false, key.HintAny)
 	m.methods = map[string]*methodForm{}
 	for _, slot := range []string{"primary", "secondary"} {
 		m.methods[slot] = &methodForm{
@@ -287,6 +316,7 @@ func (m *moreState) fill(s *adminState) {
 	}
 	if s.sub != moreAccount {
 		m.user.Ed.SetText(s.username)
+		m.invite.Ed.SetText(s.invite)
 	}
 	if s.sub != moreQR {
 		for _, me := range s.methods {
@@ -308,10 +338,6 @@ func (a *App) layoutAdminMore(gtx C) D {
 		title, sub string
 		do         func()
 	}
-	themeTitle := "Dark mode"
-	if a.th.Dark {
-		themeTitle = "Light mode"
-	}
 	phoneSub := s.phone
 	if phoneSub == "" {
 		phoneSub = "Not set"
@@ -320,8 +346,8 @@ func (a *App) layoutAdminMore(gtx C) D {
 		{icCall, "Support phone", phoneSub, func() { s.sub = morePhone }},
 		{icPay, "Payment QR codes", "Primary and backup QR, UPI IDs", func() { s.sub = moreQR }},
 		{icSchool, "Courses", plural(len(s.courses), "course"), func() { s.sub = moreCourses }},
+		{icShield, "Management team", plural(len(s.managers), "member"), func() { s.sub = moreManagement }},
 		{icKey, "Admin account", "Signed in as " + s.username, func() { s.sub = moreAccount }},
-		{themeIcon(a.th.Dark), themeTitle, "Switch the app's colours", a.toggleTheme},
 		{icOpen, "Open website", "gcation.vercel.app", func() { a.open(a.webURL) }},
 		{icCode, "Source code on GitHub", "github.com/anikchand461/gcation", func() { a.open(githubURL) }},
 		{icLogout, "Log out", "Leave the admin dashboard", func() {
@@ -341,8 +367,8 @@ func (a *App) layoutAdminMore(gtx C) D {
 		}
 	}
 	items := []layout.Widget{
-		a.groupLabel("SETTINGS"), func(gtx C) D { return a.group(gtx, widgets[:4]) },
-		a.groupLabel("APP"), func(gtx C) D { return a.group(gtx, widgets[4:]) },
+		a.groupLabel("SETTINGS"), func(gtx C) D { return a.group(gtx, widgets[:5]) },
+		a.groupLabel("APP"), func(gtx C) D { return a.group(gtx, widgets[5:]) },
 	}
 	return a.page(gtx, "a.more", items)
 }
@@ -354,7 +380,7 @@ func (a *App) layoutMoreSub(gtx C) D {
 		s.back()
 		return D{}
 	}
-	title := map[moreScreen]string{morePhone: "Support phone", moreQR: "Payment QR codes", moreCourses: "Courses", moreCourseEdit: "Course", moreAccount: "Admin account"}[s.sub]
+	title := map[moreScreen]string{morePhone: "Support phone", moreQR: "Payment QR codes", moreCourses: "Courses", moreCourseEdit: "Course", moreAccount: "Admin account", moreManagement: "Management team"}[s.sub]
 	if s.sub == moreCourseEdit && m.course.id == 0 {
 		title = "New course"
 	}
@@ -370,6 +396,8 @@ func (a *App) layoutMoreSub(gtx C) D {
 		items = a.courseEditItems(gtx)
 	case moreAccount:
 		items = a.accountItems(gtx)
+	case moreManagement:
+		items = a.managementItems(gtx)
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx C) D { return a.subBar(gtx, &m.back, title) }),
@@ -694,5 +722,5 @@ func (a *App) accountItems(gtx C) []layout.Widget {
 				return a.th.label(gtx, "Forgot the admin password? On the server run: .venv/bin/python -m app.reset_admin", textOpt{size: 12.5, color: a.th.P.Blue})
 			})
 		})
-	return items
+	return append(items, a.inviteCodeItems(gtx)...)
 }

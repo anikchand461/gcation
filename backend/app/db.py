@@ -108,6 +108,48 @@ ALTER TABLE payment_claims ADD COLUMN IF NOT EXISTS referred_by TEXT NOT NULL DE
 -- The payment note an access grant was verified against (its details go on the receipt).
 ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS claim_id BIGINT REFERENCES payment_claims(id) ON DELETE SET NULL;
 
+-- Student ID, shown as GCS001. Only students whose payment was approved get one; see give_student_no().
+ALTER TABLE students ADD COLUMN IF NOT EXISTS student_no INTEGER UNIQUE;
+
+-- Management team: they refer students and see the courses, but cannot enroll.
+-- Their Management ID is GCM + id, e.g. GCM001. Registering needs the invite code the admin sets.
+CREATE TABLE IF NOT EXISTS managers (
+    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name          TEXT NOT NULL,
+    email         TEXT NOT NULL UNIQUE,
+    phone         TEXT NOT NULL DEFAULT '',
+    password_hash TEXT NOT NULL,
+    created_at    BIGINT NOT NULL
+);
+-- Set when the admin revokes a member's access: they cannot log in until the admin restores it.
+ALTER TABLE managers ADD COLUMN IF NOT EXISTS revoked_at BIGINT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS manager_id BIGINT REFERENCES managers(id) ON DELETE CASCADE;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sessions_role_check'
+                   AND pg_get_constraintdef(oid) LIKE '%management%') THEN
+        ALTER TABLE sessions DROP CONSTRAINT IF EXISTS sessions_role_check;
+        ALTER TABLE sessions ADD CONSTRAINT sessions_role_check CHECK (role IN ('student', 'admin', 'management'));
+    END IF;
+END $$;
+
+-- The management member whose Referral ID the student entered with a payment.
+ALTER TABLE payment_claims ADD COLUMN IF NOT EXISTS manager_id BIGINT REFERENCES managers(id) ON DELETE SET NULL;
+-- Payment screenshot. Deleted 5 minutes after the admin approves the payment (see screenshots.py).
+ALTER TABLE payment_claims ADD COLUMN IF NOT EXISTS screenshot BYTEA;
+ALTER TABLE payment_claims ADD COLUMN IF NOT EXISTS screenshot_type TEXT NOT NULL DEFAULT '';
+ALTER TABLE payment_claims ADD COLUMN IF NOT EXISTS screenshot_delete_at BIGINT;
+
+-- Who sees an update (any mix): the management team, every paid student, and/or the students of
+-- some courses. Older updates used course_id (NULL = every paid student); they are copied over once.
+ALTER TABLE announcements ADD COLUMN IF NOT EXISTS to_management BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE announcements ADD COLUMN IF NOT EXISTS to_all_students BOOLEAN;
+ALTER TABLE announcements ADD COLUMN IF NOT EXISTS course_ids BIGINT[] NOT NULL DEFAULT '{}';
+UPDATE announcements SET to_all_students = (course_id IS NULL),
+    course_ids = CASE WHEN course_id IS NULL THEN '{}' ELSE ARRAY[course_id] END
+    WHERE to_all_students IS NULL;
+-- When a management member last opened Updates (for the unread count).
+ALTER TABLE managers ADD COLUMN IF NOT EXISTS announcements_seen_at BIGINT NOT NULL DEFAULT 0;
+
 -- Site settings edited from the admin dashboard (e.g. the support phone number).
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
@@ -151,6 +193,29 @@ def init_db() -> None:
         )
         if not conn.execute("SELECT 1 FROM admin_account").fetchone():
             set_admin_from_env(conn)
+        number_paid_students(conn)
+
+
+# Serialises Student ID numbering, so two approvals at once never get the same number.
+STUDENT_NO_LOCK = 4207001
+
+
+def number_paid_students(conn) -> None:
+    """Gives a Student ID to every paid student who has none, in the order they first paid.
+
+    The first run numbers all existing paid students GCS001, GCS002, ...; after that, approvals
+    number students as they happen (access.give_student_no), so this finds nothing to do.
+    """
+    with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (STUDENT_NO_LOCK,))
+        conn.execute(
+            "WITH firsts AS (SELECT e.student_id, MIN(e.granted_at) AS t, MIN(e.id) AS e FROM enrollments e "
+            "  JOIN students s ON s.id = e.student_id WHERE e.revoked_at IS NULL AND s.student_no IS NULL "
+            "  GROUP BY e.student_id), "
+            "todo AS (SELECT student_id, ROW_NUMBER() OVER (ORDER BY t, e) AS n FROM firsts) "
+            "UPDATE students s SET student_no = (SELECT COALESCE(MAX(student_no), 0) FROM students) + todo.n "
+            "FROM todo WHERE s.id = todo.student_id"
+        )
 
 
 def set_admin_from_env(conn) -> None:

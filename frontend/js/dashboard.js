@@ -6,6 +6,7 @@ let knownUpdateIds = null;   // to spot new updates while the page is open
 const enrollStep = {};       // course id -> 1 (pay) | 2 (details) | 3 (call)
 const chosenSlot = {};       // course id -> selected QR slot
 const resend = {};           // course id -> true when re-opening checkout after sending details
+const shots = {};            // course id -> payment screenshot (data URL) picked on the details step
 let seenMarked = false;
 
 const VIEWS = { home: viewHome, courses: viewCourses, enroll: viewEnroll, updates: viewUpdates, profile: viewProfile };
@@ -131,6 +132,18 @@ function updateCard(u, seenAt) {
   </article>`;
 }
 
+// Student ID chip (GCS001). Students get their ID when their first payment is approved.
+function studentIdChip(s) {
+  return s.student_code
+    ? `<span class="chip">Student ID <b class="mono">${esc(s.student_code)}</b> <button type="button" data-copy="${esc(s.student_code)}" data-copy-label="Student ID copied">Copy</button></span>`
+    : '';
+}
+
+// How the team finds this student: the Student ID once they have one, otherwise the email.
+function studentRef(s) {
+  return s.student_code ? 'Student ID ' + s.student_code : s.email;
+}
+
 function wireCopy(root = document) {
   root.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, b.dataset.copyLabel || 'Copied')));
 }
@@ -163,7 +176,7 @@ function viewHome() {
       <h2>Hello, ${esc(s.name.split(' ')[0])}</h2>
       <p>${act.length ? `You have ${act.length} active course${act.length > 1 ? 's' : ''}. Keep going!` : 'Pick a course to start your learning journey.'}</p>
       <div class="row" style="margin-top:16px">
-        <span class="chip">Student ID <b class="mono">${s.id}</b> <button type="button" data-copy="${s.id}" data-copy-label="Student ID copied">Copy</button></span>
+        ${studentIdChip(s)}
         ${act.length ? '' : `<a class="btn white sm" href="#/courses">${icon('graduation')} Browse courses</a>`}
       </div>
     </section>
@@ -293,7 +306,7 @@ function stepPay(c) {
     : `data-auth-src="/api/me/qr/${c.id}.svg?slot=${m.slot}&v=${m.updated_at}"`;
   const upiLink = m.upi_id
     ? `upi://pay?pa=${encodeURIComponent(m.upi_id).replace('%40', '@')}&pn=${encodeURIComponent(m.payee_name || 'G-CATION')}`
-      + `&am=${Number(c.price).toFixed(2)}&cu=INR&tn=${encodeURIComponent('GCATION ID ' + me.student.id)}`
+      + `&am=${Number(c.price).toFixed(2)}&cu=INR&tn=${encodeURIComponent('GCATION ' + (me.student.student_code || me.student.email))}`
     : '';
   return `<div class="card pad-lg">
     <div class="pay-card">
@@ -341,14 +354,20 @@ function stepDetails(c) {
     </div>
     <div class="field" id="cOtherWrap" hidden><label for="cOther">Which app or bank?</label><input id="cOther" name="method_other" maxlength="60" placeholder="e.g. Kotak 811"></div>
     <div class="row2">
-      <div class="field"><label for="cAge">Your age</label><input id="cAge" name="age" type="number" min="5" max="100" inputmode="numeric" required></div>
-      <div class="field"><label for="cRefBy">Referred by <span class="faint">(optional)</span></label><input id="cRefBy" name="referred_by" maxlength="80" placeholder="Name of the person who told you about us"></div>
-    </div>
-    <div class="row2">
       <div class="field"><label for="cAmount">Amount paid (₹)</label><input id="cAmount" name="amount" type="number" min="0" step="0.01" value="${Number(c.price)}"></div>
       <div class="field"><label for="cDate">Date paid</label><input id="cDate" name="paid_on" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
     </div>
-    <div class="field"><label for="cRef">UTR / transaction ID <span class="faint">(optional)</span></label><input id="cRef" name="reference" maxlength="80" placeholder="12-digit number from your UPI app" inputmode="numeric"></div>
+    <div class="row2">
+      <div class="field"><label for="cRef">UTR / transaction ID</label><input id="cRef" name="reference" maxlength="80" placeholder="12-digit number from your UPI app" required></div>
+      <div class="field"><label for="cAge">Your age</label><input id="cAge" name="age" type="number" min="5" max="100" inputmode="numeric" required></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="cRefBy">Referred by <span class="faint">(optional)</span></label><input id="cRefBy" name="referred_by" maxlength="80" placeholder="Name of the person who told you about us"></div>
+      <div class="field"><label for="cRefId">Referral ID <span class="faint">(optional)</span></label><input id="cRefId" name="referral_id" maxlength="20" placeholder="e.g. GCM001" autocomplete="off" spellcheck="false" style="text-transform:uppercase"></div>
+    </div>
+    <div class="field"><span class="label">Payment screenshot</span>
+      <label class="dropzone" id="shotDrop">${shotLabel(shots[c.id])}<input type="file" accept="image/*" hidden id="shotInput"></label>
+      <small>The "payment successful" screen from your UPI app. It is deleted once your payment is verified.</small></div>
     <div class="error"></div>
     <div class="row between" style="margin-top:8px">
       <button type="button" class="btn ghost" data-next="1">${icon('chevron')} Back</button>
@@ -357,12 +376,18 @@ function stepDetails(c) {
   </form>`;
 }
 
+function shotLabel(data) {
+  return data
+    ? `<img class="shot-thumb" src="${data}" alt="Your payment screenshot"><div class="strong">Screenshot added</div><div class="tiny">Tap to change it</div>`
+    : `${icon('upload', 'lg')}<div class="strong" style="margin-top:4px">Upload payment screenshot</div><div class="tiny">PNG or JPG · tap to choose, or drop it here</div>`;
+}
+
 function stepCall(c) {
   return `<div class="card pad-lg">
     <div class="center" style="margin-bottom:18px">
       <div class="empty-state" style="padding:4px 0 0"><div class="ico" style="background:var(--green-bg);color:var(--green)">${icon('checkCircle', 'xl')}</div></div>
       <h3 style="margin:0 0 4px;font-size:1.3rem">Almost done!</h3>
-      <p class="muted" style="margin:0">Call or email us with your Student ID <b class="mono">${me.student.id}</b>. We will unlock your course right after.</p>
+      <p class="muted" style="margin:0">Call or email us${me.student.student_code ? ` with your Student ID <b class="mono">${esc(me.student.student_code)}</b>` : ` from your registered email <b>${esc(me.student.email)}</b>`}. We will unlock your course right after.</p>
     </div>
     ${callBox(c)}
     <div class="row between" style="margin-top:18px">
@@ -373,8 +398,9 @@ function stepCall(c) {
 }
 
 function callBox(c) {
-  const subject = `Payment for ${c.title} - Student ID ${me.student.id}`;
-  const body = `Hi G-CATION,\n\nI have paid ${rupees(c.price)} for "${c.title}".\nStudent ID: ${me.student.id}\nEmail: ${me.student.email}\n\nPlease verify my payment.`;
+  const s = me.student;
+  const subject = `Payment for ${c.title} - ${studentRef(s)}`;
+  const body = `Hi G-CATION,\n\nI have paid ${rupees(c.price)} for "${c.title}".\n${s.student_code ? `Student ID: ${s.student_code}\n` : ''}Name: ${s.name}\nEmail: ${s.email}\n\nPlease verify my payment.`;
   return `<div class="call-box">
     <div class="tiny muted strong">G-CATION SUPPORT</div>
     ${supportPhones(me.payment.contact_phone).map(p => `<div class="call-line">
@@ -393,7 +419,7 @@ function statusPanel(c) {
       <h3 class="card-title">${icon('hourglass')} Verification in progress</h3>
       <p class="card-sub">The admin checks the bank account and unlocks your course.</p>
       <ol class="timeline">
-        <li class="done"><span class="t-dot">${icon('check')}</span><div><b>Account created</b><span>Student ID ${me.student.id}</span></div></li>
+        <li class="done"><span class="t-dot">${icon('check')}</span><div><b>Account created</b><span>${esc(studentRef(me.student))}</span></div></li>
         <li class="done"><span class="t-dot">${icon('check')}</span><div><b>Payment details sent</b><span>${fmtDateTime(p.created_at)}</span></div></li>
         <li class="now"><span class="t-dot">${icon('hourglass')}</span><div><b>Admin verification</b><span>Usually within a few hours</span></div></li>
         <li><span class="t-dot">${icon('graduation')}</span><div><b>Course unlocks</b><span>Class links appear in Updates</span></div></li>
@@ -411,6 +437,8 @@ function statusPanel(c) {
           ${p.reference ? `<dt>UTR</dt><dd class="mono">${esc(p.reference)}</dd>` : ''}
           ${p.age ? `<dt>Age</dt><dd>${p.age}</dd>` : ''}
           ${p.referred_by ? `<dt>Referred by</dt><dd>${esc(p.referred_by)}</dd>` : ''}
+          ${p.referral_id ? `<dt>Referral ID</dt><dd class="mono">${esc(p.referral_id)}</dd>` : ''}
+          ${p.has_screenshot ? `<dt>Screenshot</dt><dd>Attached</dd>` : ''}
         </dl>
         <button type="button" class="btn ghost sm" style="margin-top:12px" data-resend>Made a mistake? Pay or send again</button>
       </div>
@@ -434,7 +462,27 @@ function wireCheckout(c) {
       document.getElementById('cOtherWrap').hidden = !other;
       if (other) form.method_other.focus();
     });
+    wireShot(c, form);
   }
+}
+
+function wireShot(c, form) {
+  const drop = document.getElementById('shotDrop'), input = document.getElementById('shotInput');
+  const err = form.querySelector('.error');
+  const pick = async file => {
+    showError(err, '');
+    if (!file.type.startsWith('image/')) return showError(err, 'Choose an image of your payment (PNG or JPG).');
+    try {
+      shots[c.id] = await prepareImage(file, 1600);
+      drop.querySelector('input').remove(); // keep the same input element so it can be picked again
+      drop.innerHTML = shotLabel(shots[c.id]);
+      drop.appendChild(input);
+    } catch (ex) { showError(err, ex.message); }
+  };
+  input.addEventListener('change', () => { if (input.files[0]) pick(input.files[0]); input.value = ''; });
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); });
 }
 
 async function sendClaim(e, c) {
@@ -446,14 +494,19 @@ async function sendClaim(e, c) {
   const age = Number(f.age.value);
   showError(err, '');
   if (!method) return showError(err, 'Choose the app you paid with.');
+  const reference = f.reference.value.trim(), referralId = f.referral_id.value.trim().toUpperCase();
+  if (reference.length < 6) return showError(err, 'Enter the UTR / transaction ID from your payment app.');
   if (!Number.isInteger(age) || age < 5 || age > 100) return showError(err, 'Enter your age (5 to 100).');
+  if (referralId && !/^(GCM)?\s*\d+$/.test(referralId)) return showError(err, 'Referral ID looks like GCM001. Check it, or leave it empty.');
+  if (!shots[c.id]) return showError(err, 'Upload the screenshot of your payment.');
   try {
     await withLoading(f.querySelector('button[type=submit]'), () => api('/api/me/claims', { method: 'POST', body: {
       course_id: c.id, qr_slot: slotInput ? slotInput.value : '',
-      payer_name: f.payer_name.value, method, age, referred_by: f.referred_by.value,
+      payer_name: f.payer_name.value, method, age, referred_by: f.referred_by.value, referral_id: referralId,
       amount: amount === '' ? null : Number(amount),
-      paid_on: f.paid_on.value, reference: f.reference.value,
+      paid_on: f.paid_on.value, reference, screenshot: shots[c.id],
     }}));
+    delete shots[c.id];
     showToast('Details sent. Now give us a quick call.', 'success');
     enrollStep[c.id] = 3;
     resend[c.id] = true; // stay on the wizard to show the call step
@@ -541,7 +594,7 @@ function viewProfile() {
             <div style="min-width:0"><h2 style="margin:0;font-size:1.25rem">${esc(s.name)}</h2><div class="muted small">${esc(s.email)}</div>
               <div class="tiny faint">Member since ${fmtDate(s.created_at)}</div></div>
           </div>
-          <div class="row" style="margin-top:16px"><span class="chip">Student ID <b class="mono">${s.id}</b> <button type="button" data-copy="${s.id}" data-copy-label="Student ID copied">Copy</button></span></div>
+          <div class="row" style="margin-top:16px">${studentIdChip(s) || '<span class="tiny muted">Your Student ID is given when your first payment is verified.</span>'}</div>
         </div>
         <form class="card pad-lg" id="profileForm" novalidate>
           <h3 class="card-title">${icon('user')} Personal details</h3>
@@ -574,9 +627,9 @@ function viewProfile() {
           <p class="card-sub">Questions about payment, classes or your account.</p>
           ${supportPhones(me.payment.contact_phone).map(p => `<div class="row" style="margin-bottom:8px">
             <a class="btn outline" href="${esc(telHref(p))}">${icon('phone')} ${esc(p)}</a></div>`).join('')}
-          <div class="row">${mailLink(`Help needed - Student ID ${s.id}`, `Hi G-CATION,\n\nI need help with: \n\nStudent ID: ${s.id}\nEmail: ${s.email}`)}</div>
+          <div class="row">${mailLink(`Help needed - ${studentRef(s)}`, `Hi G-CATION,\n\nI need help with: \n\n${s.student_code ? `Student ID: ${s.student_code}\n` : ''}Name: ${s.name}\nEmail: ${s.email}`)}</div>
         </div>
-        <button class="btn danger block" id="logoutBtn2">${icon('logout')} Log out</button>
+        <button class="btn danger block page-logout" id="logoutBtn2">${icon('logout')} Log out</button>
       </div>
     </div>
   `);

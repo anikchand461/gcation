@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image"
+	"strings"
 
 	"gioui.org/font"
 	"gioui.org/layout"
@@ -391,4 +392,123 @@ func (a *App) iconTile(gtx C, ic *widget.Icon, size unit.Dp) D {
 	gtx.Constraints = layout.Exact(image.Pt(s, s))
 	fillRound(gtx, image.Pt(s, s), size*0.3, a.th.P.Lav)
 	return layout.Center.Layout(gtx, func(gtx C) D { return iconSized(gtx, ic, size*0.5, a.th.P.Accent) })
+}
+
+// checkDropdown is a closed box showing what is ticked; tapped, it opens a list of checkboxes
+// so several options can be chosen. Disabled options are drawn ticked and cannot be changed.
+func (a *App) checkDropdown(gtx C, key, label, hint string, options []string, checked, disabled func(i int) bool, toggle func(i int), open *bool) D {
+	head := a.clk("cd:" + key)
+	if head.Clicked(gtx) {
+		*open = !*open
+	}
+	var picked []string
+	for i, o := range options {
+		if !disabled(i) && a.clk(fmt.Sprint("cd:", key, ":", i)).Clicked(gtx) {
+			toggle(i)
+		}
+		if checked(i) && !disabled(i) {
+			picked = append(picked, o)
+		}
+	}
+	text, color := hint, a.th.P.Faint
+	if len(picked) > 0 {
+		text, color = strings.Join(picked, ", "), a.th.P.Ink
+	}
+	box := func(gtx C) D {
+		return head.Layout(gtx, func(gtx C) D {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			return withBackground(gtx, func(gtx C, size image.Point) {
+				fillRound(gtx, size, 13, a.th.P.Field)
+				if *open {
+					strokeRound(gtx, size, 13, 2, a.th.P.Violet)
+				} else {
+					strokeRound(gtx, size, 13, 1, a.th.P.Line2)
+				}
+			}, func(gtx C) D {
+				return layout.Inset{Left: 14, Right: 12, Top: 14, Bottom: 14}.Layout(gtx, func(gtx C) D {
+					ic := icExpand
+					if *open {
+						ic = icCollapse
+					}
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Flexed(1, func(gtx C) D { return a.th.label(gtx, text, textOpt{size: 15.5, color: color, maxLines: 2}) }),
+						layout.Rigid(func(gtx C) D { return iconSized(gtx, ic, 22, a.th.P.Muted) }),
+					)
+				})
+			})
+		})
+	}
+	tick := func(gtx C, on, off bool) D {
+		s := gtx.Dp(22)
+		gtx.Constraints = layout.Exact(image.Pt(s, s))
+		switch {
+		case on && off:
+			fillRound(gtx, image.Pt(s, s), 6, a.th.P.Lav)
+			strokeRound(gtx, image.Pt(s, s), 6, 1.5, a.th.P.Violet)
+		case on:
+			gradientRound(gtx, image.Pt(s, s), 6, gradA, gradB)
+		default:
+			fillRound(gtx, image.Pt(s, s), 6, a.th.P.Surface)
+			strokeRound(gtx, image.Pt(s, s), 6, 1.5, a.th.P.Line2)
+		}
+		if !on {
+			return D{Size: image.Pt(s, s)}
+		}
+		fg := white
+		if off {
+			fg = a.th.P.Violet
+		}
+		return layout.Center.Layout(gtx, func(gtx C) D { return iconSized(gtx, icTick, 16, fg) })
+	}
+	menu := func(gtx C) D {
+		if !*open {
+			return D{}
+		}
+		return layout.Inset{Top: 6}.Layout(gtx, func(gtx C) D {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			return withBackground(gtx, func(gtx C, size image.Point) {
+				fillRound(gtx, size, 13, a.th.P.Surface)
+				strokeRound(gtx, size, 13, 1, a.th.P.Line2)
+			}, func(gtx C) D {
+				rows := make([]layout.FlexChild, len(options))
+				for i, o := range options {
+					clk, on, off := a.clk(fmt.Sprint("cd:", key, ":", i)), checked(i), disabled(i)
+					rows[i] = layout.Rigid(func(gtx C) D {
+						return clk.Layout(gtx, func(gtx C) D {
+							gtx.Constraints.Min.X = gtx.Constraints.Max.X
+							return withBackground(gtx, func(gtx C, size image.Point) {
+								if clk.Pressed() && !off {
+									fillRound(gtx, size, 10, a.th.P.Lav)
+								}
+							}, func(gtx C) D {
+								return layout.Inset{Left: 12, Right: 12, Top: 12, Bottom: 12}.Layout(gtx, func(gtx C) D {
+									fg := a.th.P.Ink
+									if off {
+										fg = a.th.P.Muted
+									}
+									return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+										layout.Rigid(func(gtx C) D { return tick(gtx, on, off) }),
+										layout.Rigid(hspace(12)),
+										layout.Flexed(1, func(gtx C) D {
+											return a.th.label(gtx, o, textOpt{size: 15, weight: font.Medium, color: fg, maxLines: 2})
+										}),
+									)
+								})
+							})
+						})
+					})
+				}
+				return pad(4).Layout(gtx, func(gtx C) D { return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...) })
+			})
+		})
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx C) D {
+			return layout.Inset{Bottom: 6}.Layout(gtx, func(gtx C) D {
+				return a.th.label(gtx, label, textOpt{size: 13, weight: font.SemiBold, color: a.th.P.Ink2})
+			})
+		}),
+		layout.Rigid(box),
+		layout.Rigid(menu),
+	)
 }

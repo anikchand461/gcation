@@ -1,11 +1,13 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .db import close_db, init_db
-from .routers import admin, public, student
+from . import screenshots
+from .db import close_db, init_db, pool
+from .routers import admin, management, public, student
 
 # Addresses the frontend is opened from. Only these may call the API with login cookies.
 # Add your live site here when you deploy, e.g. "https://gcation.in".
@@ -14,7 +16,11 @@ from .routers import admin, public, student
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    with pool.connection() as conn:
+        screenshots.delete_due(conn)  # catch up on any that came due while the server was asleep
+    cleaner = asyncio.create_task(screenshots.delete_loop())
     yield
+    cleaner.cancel()
     close_db()
 
 
@@ -47,3 +53,4 @@ app.add_middleware(
 app.include_router(public.router)
 app.include_router(student.router)
 app.include_router(admin.router)
+app.include_router(management.router)

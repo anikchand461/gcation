@@ -16,16 +16,19 @@ import (
 var emailRE = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 type authState struct {
-	admin    bool // Student / Admin switch
-	register bool // student: create account instead of log in
+	admin    bool // Student / Management / Admin switch: admin
+	mgmt     bool // ... management team
+	register bool // student or management: create account instead of log in
 
-	roleStudent, roleAdmin, switchMode, submit, themeBtn widget.Clickable
-	lEmail, lPass                                        *field
-	rName, rEmail, rPhone, rPass                         *field
-	aUser, aPass                                         *field
-	busy                                                 bool
-	err                                                  string
-	list                                                 widget.List
+	roleStudent, roleMgmt, roleAdmin, switchMode, submit, themeBtn widget.Clickable
+	help, github                                                   widget.Clickable // open the website / the code on GitHub
+	lEmail, lPass                                                  *field
+	rName, rEmail, rPhone, rPass                                   *field
+	mCode                                                          *field // management referral code (registration only)
+	aUser, aPass                                                   *field
+	busy                                                           bool
+	err                                                            string
+	list                                                           widget.List
 }
 
 func (s *authState) init() {
@@ -35,6 +38,7 @@ func (s *authState) init() {
 	s.rEmail = newField("Email", "you@gmail.com", false, key.HintEmail)
 	s.rPhone = newField("Phone number", "10-digit mobile number", false, key.HintTelephone)
 	s.rPass = newField("Password", "At least 8 characters", true, key.HintAny)
+	s.mCode = newField("Referral code", "The code the G-CATION admin gave you", false, key.HintAny)
 	s.aUser = newField("Admin username", "Username", false, key.HintAny)
 	s.aPass = newField("Password", "Admin password", true, key.HintAny)
 	s.list.Axis = layout.Vertical
@@ -43,10 +47,13 @@ func (s *authState) init() {
 func (a *App) layoutAuth(gtx C) D {
 	s := &a.auth
 	if s.roleStudent.Clicked(gtx) {
-		s.admin, s.err = false, ""
+		s.admin, s.mgmt, s.err = false, false, ""
+	}
+	if s.roleMgmt.Clicked(gtx) {
+		s.admin, s.mgmt, s.register, s.err = false, true, false, ""
 	}
 	if s.roleAdmin.Clicked(gtx) {
-		s.admin, s.register, s.err = true, false, ""
+		s.admin, s.mgmt, s.register, s.err = true, false, false, ""
 	}
 	if s.switchMode.Clicked(gtx) {
 		s.register, s.err = !s.register, ""
@@ -56,6 +63,12 @@ func (a *App) layoutAuth(gtx C) D {
 	}
 	if s.submit.Clicked(gtx) && !s.busy {
 		a.submitAuth()
+	}
+	if s.help.Clicked(gtx) {
+		a.open(a.webURL)
+	}
+	if s.github.Clicked(gtx) {
+		a.open(githubURL)
 	}
 
 	screenH := gtx.Constraints.Max.Y
@@ -133,6 +146,11 @@ func (a *App) authForm(gtx C) D {
 	case s.admin:
 		title, sub, button = "Admin login", "Manage students, payments and updates.", "Log in as admin"
 		fields = []*field{s.aUser, s.aPass}
+	case s.mgmt && s.register:
+		title, sub, button = "Join the team", "You need the referral code from the G-CATION admin.", "Create management account"
+		fields = []*field{s.rName, s.rEmail, s.rPhone, s.rPass, s.mCode}
+	case s.mgmt:
+		title, sub, button = "Management login", "See courses and your Management ID.", "Log in"
 	case s.register:
 		title, sub, button = "Create your account", "Registration is free. You only pay when you enroll.", "Create account"
 		fields = []*field{s.rName, s.rEmail, s.rPhone, s.rPass}
@@ -157,8 +175,11 @@ func (a *App) authForm(gtx C) D {
 				return centered(gtx, "Only the G-CATION admin can log in here.", a.th, textOpt{size: 13, color: a.th.P.Muted})
 			}
 			q, action := "New to G-CATION?", "Create an account"
-			if s.register {
+			switch {
+			case s.register:
 				q, action = "Already have an account?", "Log in"
+			case s.mgmt:
+				q, action = "New to the team?", "Register"
 			}
 			return layout.Center.Layout(gtx, func(gtx C) D {
 				return s.switchMode.Layout(gtx, func(gtx C) D {
@@ -178,14 +199,33 @@ func (a *App) authForm(gtx C) D {
 				return D{}
 			}
 			return layout.Inset{Top: 6}.Layout(gtx, func(gtx C) D {
-				return centered(gtx, "Forgot your password? Call the G-CATION team.", a.th, textOpt{size: 12.5, color: a.th.P.Faint})
+				msg := "Forgot your password? Call the G-CATION team."
+				if s.mgmt {
+					msg = "Forgot your password? Contact the G-CATION admin."
+				}
+				return centered(gtx, msg, a.th, textOpt{size: 12.5, color: a.th.P.Faint})
+			})
+		}),
+		// Help (the website's home page) and the code on GitHub, at the bottom of every form.
+		layout.Rigid(vspace(18)),
+		layout.Rigid(func(gtx C) D {
+			return layout.Center.Layout(gtx, func(gtx C) D {
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(func(gtx C) D {
+						return a.th.button(gtx, &s.help, "Help", btnOpt{kind: btnOutline, small: true, icon: icInfo})
+					}),
+					layout.Rigid(hspace(10)),
+					layout.Rigid(func(gtx C) D {
+						return a.th.button(gtx, &s.github, "GitHub", btnOpt{kind: btnOutline, small: true, logo: githubMark})
+					}),
+				)
 			})
 		}),
 	)
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 }
 
-// roleSwitch is the Student / Admin segmented control.
+// roleSwitch is the Student / Management / Admin segmented control.
 func (a *App) roleSwitch(gtx C) D {
 	s := &a.auth
 	seg := func(clk *widget.Clickable, ic *widget.Icon, label string, on bool) layout.FlexChild {
@@ -204,9 +244,11 @@ func (a *App) roleSwitch(gtx C) D {
 								fg = white
 							}
 							return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-								layout.Rigid(func(gtx C) D { return iconSized(gtx, ic, 18, fg) }),
-								layout.Rigid(hspace(6)),
-								layout.Rigid(func(gtx C) D { return a.th.label(gtx, label, textOpt{size: 14.5, weight: font.Bold, color: fg}) }),
+								layout.Rigid(func(gtx C) D { return iconSized(gtx, ic, 17, fg) }),
+								layout.Rigid(hspace(5)),
+								layout.Rigid(func(gtx C) D {
+									return a.th.label(gtx, label, textOpt{size: 13.5, weight: font.Bold, color: fg, maxLines: 1})
+								}),
 							)
 						})
 					})
@@ -217,7 +259,9 @@ func (a *App) roleSwitch(gtx C) D {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
 	return tinted(gtx, a.th.P.Lav, 15, 4, func(gtx C) D {
 		return layout.Flex{}.Layout(gtx,
-			seg(&s.roleStudent, icSchool, "Student", !s.admin),
+			seg(&s.roleStudent, icSchool, "Student", !s.admin && !s.mgmt),
+			layout.Rigid(hspace(4)),
+			seg(&s.roleMgmt, icPerson, "Management", s.mgmt),
 			layout.Rigid(hspace(4)),
 			seg(&s.roleAdmin, icShield, "Admin", s.admin),
 		)
@@ -253,6 +297,7 @@ func (a *App) submitAuth() {
 			rule{emailRE.MatchString(s.rEmail.Text()), "Enter a valid email address."},
 			rule{len(digits) >= 10, "Enter a valid phone number."},
 			rule{len(s.rPass.Ed.Text()) >= 8, "Password must be at least 8 characters."},
+			rule{!s.mgmt || s.mCode.Text() != "", "Enter the referral code from the G-CATION admin."},
 		)
 	default:
 		s.err = check(rule{strings.Contains(s.lEmail.Text(), "@"), "Enter your email address."}, rule{s.lPass.Ed.Text() != "", "Enter your password."})
@@ -261,7 +306,8 @@ func (a *App) submitAuth() {
 		return
 	}
 	s.busy = true
-	admin, register := s.admin, s.register
+	admin, mgmt, register := s.admin, s.mgmt, s.register
+	code := s.mCode.Text()
 	name, email, phone, pass := s.rName.Text(), s.rEmail.Text(), s.rPhone.Text(), s.rPass.Ed.Text()
 	if !register {
 		email, pass = s.lEmail.Text(), s.lPass.Ed.Text()
@@ -272,6 +318,10 @@ func (a *App) submitAuth() {
 		switch {
 		case admin:
 			err = a.api.AdminLogin(user, apass)
+		case mgmt && register:
+			err = a.api.ManagerRegister(name, email, phone, pass, code)
+		case mgmt:
+			err = a.api.ManagerLogin(email, pass)
 		case register:
 			err = a.api.Register(name, email, phone, pass)
 		default:
@@ -289,6 +339,11 @@ func (a *App) submitAuth() {
 			}
 			if admin {
 				a.startAdmin()
+				return
+			}
+			if mgmt {
+				s.mCode.Ed.SetText("")
+				a.startManagement()
 				return
 			}
 			a.screen, a.tab = scrSplash, tabHome

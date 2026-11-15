@@ -1,8 +1,8 @@
-// Admin app: Overview, Students, Payment notes, Payments, Updates, Payment QR and Courses.
+// Admin app: Overview, Students, Payment notes, Payments, Management, Updates, Payment QR and Courses.
 
 const DAY = 86400;
 const PRESETS = [[30, '1 month'], [90, '3 months'], [180, '6 months'], [365, '1 year']];
-const VIEWS = { overview: viewOverview, students: viewStudents, notes: viewNotes, payments: viewPayments, updates: viewUpdates, qr: viewQr, courses: viewCourses, account: viewAccount };
+const VIEWS = { overview: viewOverview, students: viewStudents, notes: viewNotes, payments: viewPayments, management: viewManagement, updates: viewUpdates, qr: viewQr, courses: viewCourses, account: viewAccount };
 
 let students = [];
 let studentFilter = 'all';
@@ -50,6 +50,38 @@ function head(kicker, title, sub = '', actions = '') {
 }
 
 const skeleton = (h = 300) => `<div class="skeleton" style="height:${h}px"></div>`;
+
+// "GCS001", or a note that the student has no Student ID yet (they get one when a payment is approved).
+function studentIdText(code) {
+  return code ? esc(code) : 'No Student ID yet';
+}
+
+// Referrer of a payment note: name and Management ID.
+function referralText(c) {
+  return [c.referred_by, c.referral_id && `${c.referral_id}${c.referral_name ? ' (' + c.referral_name + ')' : ''}`].filter(Boolean).join(' · ');
+}
+
+// Opens the payment screenshot a student uploaded (kept until 5 minutes after the payment is approved).
+function showScreenshot(claimId) {
+  const bg = document.createElement('div');
+  bg.className = 'dialog-bg';
+  bg.innerHTML = `<div class="dialog shot-dialog" role="dialog" aria-modal="true" aria-label="Payment screenshot">
+    <img data-auth-src="/api/admin/claims/${claimId}/screenshot?v=${Date.now()}" alt="Payment screenshot">
+    <div class="dialog-actions"><button class="btn primary" data-close>Close</button></div></div>`;
+  const close = () => { bg.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  bg.addEventListener('click', e => { if (e.target === bg || e.target.closest('[data-close]')) close(); });
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(bg);
+}
+
+function shotButton(c, cls = 'outline') {
+  return c.has_screenshot ? `<button type="button" class="btn ${cls} sm" data-shot="${c.id}">${icon('eye')} Screenshot</button>` : '';
+}
+
+function wireShots(root) {
+  root.querySelectorAll('[data-shot]').forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); showScreenshot(b.dataset.shot); }));
+}
 
 function qrLabel(slot) {
   return slot === 'primary' ? 'Primary QR' : slot === 'secondary' ? 'Secondary QR' : 'QR not specified';
@@ -150,7 +182,7 @@ async function viewStudents() {
   if (sub && FILTERS.some(([f]) => f === sub)) studentFilter = sub;
   setView(`
     ${head('People', 'Students', 'Everyone who registered. Click a student to verify payment or manage access.')}
-    <div class="toolbar"><div class="search">${icon('search')}<input id="search" type="search" placeholder="Search name, email, phone or ID" aria-label="Search students" value="${esc(studentQuery)}"></div></div>
+    <div class="toolbar"><div class="search">${icon('search')}<input id="search" type="search" placeholder="Search name, email, phone or Student ID" aria-label="Search students" value="${esc(studentQuery)}"></div></div>
     <div class="filters" id="filters"></div>
     <div class="card table-wrap"><table class="responsive">
       <thead><tr><th>Student</th><th>Phone</th><th>Status</th><th>Access until</th><th>Joined</th><th></th></tr></thead>
@@ -188,7 +220,7 @@ function renderStudents() {
     const until = s.access.filter(a => a.until && a.status !== 'expired').map(a => a.until);
     const ended = s.access.map(a => a.until).filter(Boolean);
     return `<tr class="click" data-id="${s.id}">
-      <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(s.name))}</span><div style="min-width:0"><b>${esc(s.name)}</b><span>#${s.id} · ${esc(s.email)}</span></div></div></td>
+      <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(s.name))}</span><div style="min-width:0"><b>${esc(s.name)}</b><span>${s.student_code ? esc(s.student_code) + ' · ' : ''}${esc(s.email)}</span></div></div></td>
       <td data-label="Phone">${s.phone ? `<a href="${esc(telHref(s.phone))}" class="strong" data-stop>${esc(s.phone)}</a>` : '<span class="faint">—</span>'}</td>
       <td data-label="Status">${statusBadge(s)}</td>
       <td data-label="Access until">${until.length ? fmtDate(Math.max(...until)) : ended.length ? `<span class="muted">ended ${fmtDate(Math.max(...ended))}</span>` : '<span class="faint">—</span>'}</td>
@@ -236,7 +268,7 @@ function renderDrawer() {
     <span class="avatar-sm" style="width:50px;height:50px;font-size:1rem;border-radius:15px">${esc(initials(s.name))}</span>
     <div style="flex:1;min-width:0">
       <h2 id="drawerName">${esc(s.name)}</h2>
-      <div class="muted small">Student #${s.id} · ${esc(s.email)}</div>
+      <div class="muted small">${studentIdText(s.student_code)} · ${esc(s.email)}</div>
       <div class="contact-actions">
         ${s.phone ? `<a class="btn outline sm" href="${esc(telHref(s.phone))}">${icon('phone')} Call</a>
           <a class="btn outline sm" href="${esc(waHref(s.phone, `Hi ${s.name.split(' ')[0]}, this is G-CATION.`))}" target="_blank" rel="noopener">${icon('message')} WhatsApp</a>` : ''}
@@ -260,8 +292,9 @@ function renderDrawer() {
         <b>${c.amount != null ? rupees(c.amount) : 'Amount not given'}</b> to ${esc(qrLabel(c.qr_slot))}
         ${c.method ? ' via ' + esc(c.method) : ''}${c.payer_name ? ' · payer <b>' + esc(c.payer_name) + '</b>' : ''}
         ${c.paid_on ? ' · ' + esc(c.paid_on) : ''}${c.reference ? ' · UTR <span class="mono">' + esc(c.reference) + '</span>' : ''}
-        ${c.age ? ' · age ' + c.age : ''}${c.referred_by ? ' · referred by <b>' + esc(c.referred_by) + '</b>' : ''}
-        <div class="tiny" style="margin-top:2px">${esc(c.course_title)} · sent ${fmtDateTime(c.created_at)}</div></div></div>`).join('')}` : ''}
+        ${c.age ? ' · age ' + c.age : ''}${referralText(c) ? ' · referred by <b>' + esc(referralText(c)) + '</b>' : ''}
+        <div class="tiny" style="margin-top:2px">${esc(c.course_title)} · sent ${fmtDateTime(c.created_at)}</div>
+        ${c.has_screenshot ? `<div style="margin-top:6px">${shotButton(c)}</div>` : ''}</div></div>`).join('')}` : ''}
 
     <h3>Give course access</h3>
     <form class="card" id="grantForm" novalidate>
@@ -328,6 +361,7 @@ function renderDrawer() {
   wireAccountForms();
   document.querySelectorAll('[data-revoke]').forEach(b => b.addEventListener('click', () => revoke(Number(b.dataset.revoke))));
   wireAdminReceipts(document.getElementById('drawerBody'));
+  wireShots(document.getElementById('drawerBody'));
 }
 
 function adminReceiptButton(e) {
@@ -373,7 +407,8 @@ function wireGrantForm(pendingClaims) {
       fillFromCourse();
       if (claim.amount != null) form.amount.value = Number(claim.amount);
       form.note.value = [qrLabel(claim.qr_slot), claim.method, claim.payer_name && 'paid by ' + claim.payer_name,
-        claim.reference && 'UTR ' + claim.reference, claim.paid_on && 'on ' + claim.paid_on].filter(Boolean).join(', ');
+        claim.reference && 'UTR ' + claim.reference, claim.paid_on && 'on ' + claim.paid_on,
+        claim.referral_id && 'referral ' + claim.referral_id].filter(Boolean).join(', ');
     });
   }
   fillFromCourse();
@@ -466,15 +501,16 @@ async function viewNotes() {
   setView(`
     ${head('Money', 'Payment notes', 'Details students sent after paying. Match them with your bank statement, then verify.')}
     ${rows.length ? `<div class="card table-wrap"><table class="responsive">
-      <thead><tr><th>Student</th><th>Paid to</th><th>Payer</th><th>Using</th><th class="num">Amount</th><th>Date</th><th>UTR</th><th>Age</th><th>Referred by</th><th></th></tr></thead>
+      <thead><tr><th>Student</th><th>Paid to</th><th>Payer</th><th>Using</th><th class="num">Amount</th><th>Date</th><th>UTR</th><th>Age</th><th>Referred by</th><th>Screenshot</th><th></th></tr></thead>
       <tbody>${rows.map(c => `<tr>
         <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(c.student_name))}</span><div style="min-width:0"><b>${esc(c.student_name)}</b>
-          <span>#${c.student_id}${c.student_phone ? ' · <a href="' + esc(telHref(c.student_phone)) + '">' + esc(c.student_phone) + '</a>' : ''} · ${timeAgo(c.created_at)}</span></div></div></td>
+          <span>${[c.student_code && esc(c.student_code), c.student_phone && `<a href="${esc(telHref(c.student_phone))}">${esc(c.student_phone)}</a>`, timeAgo(c.created_at)].filter(Boolean).join(' · ')}</span></div></div></td>
         <td data-label="Paid to">${c.qr_slot ? badge('info', qrLabel(c.qr_slot)) : '<span class="faint">—</span>'}</td>
         <td data-label="Payer">${esc(c.payer_name) || '—'}</td><td data-label="Using">${esc(c.method) || '—'}</td>
         <td data-label="Amount" class="num strong">${c.amount != null ? rupees(c.amount) : '—'}</td><td data-label="Date" class="small">${esc(c.paid_on) || '—'}</td>
         <td data-label="UTR" class="mono small">${esc(c.reference) || '—'}</td>
-        <td data-label="Age" class="small">${c.age || '—'}</td><td data-label="Referred by" class="small">${esc(c.referred_by) || '—'}</td>
+        <td data-label="Age" class="small">${c.age || '—'}</td><td data-label="Referred by" class="small">${esc(referralText(c)) || '—'}</td>
+        <td data-label="Screenshot">${shotButton(c) || '<span class="faint">—</span>'}</td>
         <td class="right actions" style="white-space:nowrap"><button class="btn success sm" data-open="${c.student_id}" data-claim="${c.id}">${icon('check')} Verify</button>
           <button class="btn danger sm" data-dismiss="${c.id}" aria-label="Dismiss">${icon('x')}</button></td>
       </tr>`).join('')}</tbody></table></div>`
@@ -482,6 +518,7 @@ async function viewNotes() {
   `);
   const view = document.getElementById('view');
   view.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => openStudent(Number(b.dataset.open), Number(b.dataset.claim))));
+  wireShots(view);
   view.querySelectorAll('[data-dismiss]').forEach(b => b.addEventListener('click', async () => {
     if (!await confirmDialog({ title: 'Dismiss this payment note?', message: 'Do this only if no matching payment arrived in your account.', confirmText: 'Dismiss', danger: true })) return;
     await guarded(() => api(`/api/admin/claims/${b.dataset.dismiss}/dismiss`, { method: 'POST' }));
@@ -528,7 +565,7 @@ function downloadCsv() {
   const iso = ts => new Date(ts * 1000).toISOString().slice(0, 10);
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [['Receipt no', 'Given on', 'Student ID', 'Student', 'Email', 'Course', 'Amount', 'Start', 'End', 'Notes', 'Revoked on']]
-    .concat(payments.map(p => [p.receipt_no, iso(p.granted_at), p.student_id, p.student_name, p.student_email, p.course_title,
+    .concat(payments.map(p => [p.receipt_no, iso(p.granted_at), p.student_code || '', p.student_name, p.student_email, p.course_title,
       p.amount_paid, iso(p.start_at), iso(p.end_at), p.note, p.revoked_at ? iso(p.revoked_at) : '']));
   const blob = new Blob([lines.map(l => l.map(cell).join(',')).join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');
@@ -536,6 +573,50 @@ function downloadCsv() {
   a.download = `gcation-payments-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+// ---------- Management team ----------
+
+const signupUrl = () => new URL('management-login.html#register', location.href).href;
+
+async function viewManagement() {
+  const sub = 'People who refer students. They see courses and prices and share their Management ID (GCM…) as the Referral ID.';
+  setView(head('People', 'Management', sub) + skeleton(300));
+  const data = await guarded(() => api('/api/admin/managers'));
+  setView(`
+    ${head('People', 'Management', sub, `<button class="btn outline sm" data-copy-url>${icon('copy')} Copy registration link</button>`)}
+    <div class="notice info" style="margin-bottom:16px">${icon('info')}<div>New members register once with the <b>management referral code</b>
+      ${data.invite_code ? `(now <b class="mono">${esc(data.invite_code)}</b>)` : '(<b>not set</b>, so registration is closed)'}. After that they log in with just their email and password.
+      Change the code in <a href="#/account" style="font-weight:700">Admin account</a>.</div></div>
+    ${data.items.length ? `<div class="card table-wrap"><table class="responsive">
+      <thead><tr><th>Member</th><th>Management ID</th><th>Phone</th><th class="num">Approved referrals</th><th class="num">Waiting</th><th>Status</th><th></th></tr></thead>
+      <tbody>${data.items.map(m => `<tr class="${m.revoked_at ? 'revoked' : ''}">
+        <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(m.name))}</span><div style="min-width:0"><b>${esc(m.name)}</b><span>${esc(m.email)} · joined ${fmtDate(m.created_at)}</span></div></div></td>
+        <td data-label="Management ID" class="mono strong">${esc(m.manager_code)}</td>
+        <td data-label="Phone">${m.phone ? `<a href="${esc(telHref(m.phone))}" class="strong">${esc(m.phone)}</a>` : '<span class="faint">—</span>'}</td>
+        <td data-label="Approved" class="num strong">${m.approved}</td><td data-label="Waiting" class="num">${m.pending}</td>
+        <td data-label="Status">${m.revoked_at ? badge('expired', 'Revoked ' + fmtDate(m.revoked_at)) : badge('active')}</td>
+        <td class="right actions">${m.revoked_at
+          ? `<button class="btn success sm" data-restore="${m.id}">${icon('check')} Restore</button>`
+          : `<button class="btn danger sm" data-revoke-m="${m.id}">${icon('x')} Revoke</button>`}</td></tr>`).join('')}</tbody></table></div>`
+      : emptyState('users', 'No management members yet', 'Set the referral code in Admin account and share the registration link with your team.')}
+  `);
+  document.querySelector('[data-copy-url]').addEventListener('click', () => copyText(signupUrl(), 'Registration link copied'));
+  const byId = id => data.items.find(m => m.id === Number(id));
+  document.querySelectorAll('[data-revoke-m]').forEach(b => b.addEventListener('click', async () => {
+    const m = byId(b.dataset.revokeM);
+    if (!await confirmDialog({ title: `Revoke ${m.name}'s access?`, message: `${m.name} is logged out and cannot log in, and students can no longer use ${m.manager_code} as a Referral ID. Their past referrals are kept. You can restore access any time.`, confirmText: 'Revoke access', danger: true })) return;
+    await guarded(() => api(`/api/admin/managers/${m.id}/revoke`, { method: 'POST' }));
+    showToast(`${m.name}'s access revoked.`, 'success');
+    viewManagement();
+  }));
+  document.querySelectorAll('[data-restore]').forEach(b => b.addEventListener('click', async () => {
+    const m = byId(b.dataset.restore);
+    if (!await confirmDialog({ title: `Restore ${m.name}'s access?`, message: `${m.name} can log in again with the same email and password, and ${m.manager_code} works as a Referral ID again.`, confirmText: 'Restore access' })) return;
+    await guarded(() => api(`/api/admin/managers/${m.id}/restore`, { method: 'POST' }));
+    showToast(`${m.name} can log in again.`, 'success');
+    viewManagement();
+  }));
 }
 
 // ---------- Updates ----------
@@ -557,7 +638,7 @@ const TEMPLATES = [
 async function viewUpdates() {
   editingAnn = null;
   setView(`
-    ${head('Content', 'Updates', 'Share Google Meet links, the community group or instructions. Only students with active (paid) access see these.')}
+    ${head('Content', 'Updates', 'Share Google Meet links, the community group or instructions with the management team, all paid students or the students of chosen courses.')}
     <div class="panel-grid">
       <form class="card pad-lg" id="annForm" novalidate>
         <h3 class="card-title" id="composerTitle"></h3>
@@ -568,8 +649,12 @@ async function viewUpdates() {
           <div class="field"><label for="aUrl">Link <span class="faint">(optional)</span></label><input id="aUrl" name="link_url" maxlength="500" placeholder="https://meet.google.com/…"></div>
           <div class="field"><label for="aLabel">Button text</label><input id="aLabel" name="link_label" maxlength="60" placeholder="Join Google Meet"></div>
         </div>
-        <div class="field"><label for="aCourse">Who should see this?</label><select id="aCourse" name="course_id"></select></div>
-        <div class="preview-box"><div class="tiny faint strong" style="margin-bottom:8px">PREVIEW · WHAT STUDENTS SEE</div><div id="annPreview"></div></div>
+        <div class="field"><span class="label" id="audLabel">Who should see this?</span>
+          <div class="multi" id="audBox">
+            <button type="button" class="multi-btn" id="audBtn" aria-haspopup="true" aria-expanded="false" aria-labelledby="audLabel audSummary"><span id="audSummary"></span>${icon('chevron')}</button>
+            <div class="multi-list" id="audList" role="group" aria-labelledby="audLabel" hidden></div>
+          </div><small>Tick everyone who should get it.</small></div>
+        <div class="preview-box"><div class="tiny faint strong" style="margin-bottom:8px">PREVIEW · WHAT THEY SEE</div><div id="annPreview"></div></div>
         <div class="error" id="annErr"></div>
         <div class="row" style="margin-top:14px">
           <button class="btn primary" type="submit" id="annSubmit"></button>
@@ -594,6 +679,7 @@ async function viewUpdates() {
   }));
   f.addEventListener('input', renderAnnPreview);
   f.addEventListener('submit', submitAnnouncement);
+  wireAudience();
   document.getElementById('annCancel').addEventListener('click', () => resetComposer());
   if (!courses.length) courses = await guarded(() => api('/api/admin/courses'));
   resetComposer();
@@ -609,8 +695,7 @@ function resetComposer(item = null) {
   f.message.value = item ? item.message : '';
   f.link_url.value = item ? item.link_url : '';
   f.link_label.value = item ? item.link_label : '';
-  audienceOptions();
-  f.course_id.value = item && item.course_id ? String(item.course_id) : '';
+  audienceOptions(item ? audienceOf(item) : ['all']);
   document.getElementById('composerTitle').innerHTML = icon(item ? 'edit' : 'megaphone') + (item ? ' Edit update' : ' New update');
   document.getElementById('annSubmit').innerHTML = item ? icon('check') + ' Save changes' : icon('send') + ' Post update';
   document.getElementById('annCancel').hidden = !item;
@@ -618,13 +703,58 @@ function resetComposer(item = null) {
   renderAnnPreview();
 }
 
-function audienceOptions() {
-  const sel = document.getElementById('aCourse');
-  if (!sel) return;
-  const keep = sel.value;
-  sel.innerHTML = `<option value="">All paid students (${audience.all || 0})</option>` +
-    courses.map(c => `<option value="${c.id}">Only ${esc(c.title)} (${audience[c.id] || 0})</option>`).join('');
-  sel.value = keep;
+// Audience choices as checkbox values: 'management', 'all' (every paid student) and 'c<course id>'.
+function audienceOf(a) {
+  return [a.to_management && 'management', a.to_all_students && 'all', ...(a.course_ids || []).map(id => 'c' + id)].filter(Boolean);
+}
+
+function chosenAudience() {
+  return [...document.querySelectorAll('#audList input:checked')].map(i => i.value);
+}
+
+// Fills the "Who should see this?" list. With no `checked`, keeps what is ticked now.
+function audienceOptions(checked = chosenAudience()) {
+  const list = document.getElementById('audList');
+  if (!list) return;
+  const opts = [['management', 'users', 'Management team', audience.management],
+    ['all', 'graduation', 'All paid students', audience.all],
+    ...courses.map(c => ['c' + c.id, 'book', `${c.title} students`, audience[c.id]])];
+  list.innerHTML = opts.map(([v, ic, label, n]) => `<label class="multi-opt">
+      <input type="checkbox" value="${v}" ${checked.includes(v) ? 'checked' : ''}>
+      ${icon(ic)}<span>${esc(label)}</span><b>${n || 0}</b></label>`).join('');
+  syncAudience();
+}
+
+// Course boxes are covered by "All paid students", so they are shown ticked and locked.
+function syncAudience() {
+  const all = document.querySelector('#audList input[value=all]')?.checked;
+  document.querySelectorAll('#audList input[value^=c]').forEach(i => {
+    if (all) i.dataset.was ??= i.checked ? '1' : '';
+    else if (i.dataset.was !== undefined) { i.checked = i.dataset.was === '1'; delete i.dataset.was; }
+    i.disabled = !!all;
+    if (all) i.checked = true;
+  });
+  const summary = document.getElementById('audSummary');
+  if (summary) summary.textContent = audienceText() || 'Choose who should see this';
+  summary?.classList.toggle('faint', !audienceText());
+}
+
+// e.g. "Management team, Course A students".
+function audienceText() {
+  const picked = chosenAudience();
+  const all = picked.includes('all');
+  return [...document.querySelectorAll('#audList input:checked')]
+    .filter(i => !(all && i.value.startsWith('c')))
+    .map(i => i.closest('label').querySelector('span').textContent).join(', ');
+}
+
+function wireAudience() {
+  const box = document.getElementById('audBox'), btn = document.getElementById('audBtn'), list = document.getElementById('audList');
+  const open = v => { list.hidden = !v; btn.setAttribute('aria-expanded', v); box.classList.toggle('open', v); };
+  btn.addEventListener('click', () => open(list.hidden));
+  list.addEventListener('change', syncAudience);
+  document.addEventListener('click', e => { if (!box.contains(e.target)) open(false); });
+  box.addEventListener('keydown', e => { if (e.key === 'Escape' && !list.hidden) { e.stopPropagation(); open(false); btn.focus(); } });
 }
 
 function renderAnnPreview() {
@@ -644,21 +774,25 @@ async function submitAnnouncement(e) {
   const f = annForm(), err = document.getElementById('annErr');
   const body = {
     title: f.title.value.trim(), message: f.message.value, link_url: f.link_url.value.trim(),
-    link_label: f.link_label.value, course_id: f.course_id.value ? Number(f.course_id.value) : null,
+    link_label: f.link_label.value,
   };
+  const picked = chosenAudience();
+  body.to_management = picked.includes('management');
+  body.to_all_students = picked.includes('all');
+  body.course_ids = body.to_all_students ? [] : picked.filter(v => v.startsWith('c')).map(v => Number(v.slice(1)));
   if (!body.title) { showError(err, 'Add a title.'); return; }
+  if (!body.to_management && !body.to_all_students && !body.course_ids.length) { showError(err, 'Choose who should see this update.'); return; }
   if (body.link_url && !/^https:\/\/\S+\.\S+/.test(body.link_url)) { showError(err, 'The link must be a full address starting with https://'); return; }
   if (/^https:\/\/(chat\.whatsapp\.com|meet\.google\.com)\/?$/.test(body.link_url)) { showError(err, 'Paste the full group or meeting link, not just the website.'); return; }
   showError(err, '');
-  const reach = body.course_id ? audience[body.course_id] || 0 : audience.all || 0;
   if (!editingAnn && !await confirmDialog({
-    title: 'Post this update?', message: `${reach} paid student${reach === 1 ? '' : 's'} will see it on their dashboard right away.`, confirmText: 'Post update',
+    title: 'Post this update?', message: `${audienceText()} will see it right away.`, confirmText: 'Post update',
   })) return;
   try {
     await withLoading(document.getElementById('annSubmit'), () => editingAnn
       ? api(`/api/admin/announcements/${editingAnn.id}`, { method: 'PUT', body })
       : api('/api/admin/announcements', { method: 'POST', body }));
-    showToast(editingAnn ? 'Update saved.' : 'Update posted to students.', 'success');
+    showToast(editingAnn ? 'Update saved.' : 'Update posted.', 'success');
     resetComposer();
     loadAnnouncements();
   } catch (ex) {
@@ -679,7 +813,7 @@ async function loadAnnouncements() {
     return;
   }
   list.innerHTML = data.items.map(a => `<div class="card ann-item">
-    <div class="row between" style="align-items:flex-start"><h4>${esc(a.title)}</h4>${badge('info', a.course_title || 'All paid students')}</div>
+    <div class="row between" style="align-items:flex-start"><h4>${esc(a.title)}</h4>${badge('info', a.audience_label)}</div>
     <div class="tiny muted">${fmtDateTime(a.created_at)}${a.updated_at > a.created_at + 60 ? ' · edited' : ''}</div>
     ${a.message ? `<p class="msg">${linkify(a.message)}</p>` : ''}
     ${a.link_url ? `<a class="small strong" style="color:var(--purple);word-break:break-all" href="${esc(a.link_url)}" target="_blank" rel="noopener">${icon('link')} ${esc(a.link_url)}</a>` : ''}
@@ -692,7 +826,7 @@ async function loadAnnouncements() {
     annForm().scrollIntoView({ behavior: 'smooth', block: 'start' });
   }));
   list.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
-    if (!await confirmDialog({ title: 'Delete this update?', message: 'Students will no longer see it.', confirmText: 'Delete', danger: true })) return;
+    if (!await confirmDialog({ title: 'Delete this update?', message: 'Nobody will see it any more.', confirmText: 'Delete', danger: true })) return;
     await guarded(() => api(`/api/admin/announcements/${b.dataset.del}`, { method: 'DELETE' }));
     if (editingAnn && editingAnn.id === Number(b.dataset.del)) resetComposer();
     showToast('Update deleted.', 'success');
@@ -809,33 +943,6 @@ function wireQrForm(f) {
     const m = await guarded(() => api(`/api/admin/payment-methods/${slot}/image`, { method: 'DELETE' }));
     showToast('QR image removed.', 'success');
     replace(m);
-  });
-}
-
-// Reads the file, shrinking large photos/screenshots so the upload stays small.
-function prepareImage(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Could not read the file.'));
-    reader.onload = () => {
-      const okType = ['image/png', 'image/jpeg', 'image/webp'].includes(file.type);
-      if (okType && file.size <= 1.5 * 1024 * 1024) return resolve(reader.result);
-      const img = new Image();
-      img.onerror = () => reject(new Error('Upload a PNG or JPG image of the QR code.'));
-      img.onload = () => {
-        const scale = Math.min(1, 1200 / Math.max(img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.92));
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
   });
 }
 
@@ -1010,15 +1117,9 @@ async function setCourseVisible(c, show = !c.is_active, ask = true) {
 
 // ---------- Admin account ----------
 
-function showAdminName(username) {
-  document.getElementById('adminName').textContent = username;
-  document.getElementById('adminAvatar').textContent = initials(username);
-}
-
 async function viewAccount() {
   setView(head('Settings', 'Admin account', 'Change the username and password you use to log in here.') + skeleton(320));
-  const acc = await guarded(() => api('/api/admin/account'));
-  showAdminName(acc.username);
+  const [acc, team] = await guarded(() => Promise.all([api('/api/admin/account'), api('/api/admin/managers')]));
   setView(`
     ${head('Settings', 'Admin account', 'Change the username and password you use to log in here.')}
     <div class="grid-2" style="align-items:start">
@@ -1034,6 +1135,17 @@ async function viewAccount() {
         <button class="btn primary" type="submit">${icon('check')} Save login details</button>
       </form>
       <div class="stack">
+        <form class="card pad-lg" id="inviteForm" novalidate>
+          <h3 class="card-title">${icon('shield')} Management referral code</h3>
+          <p class="card-sub">New management members enter this once, when they register. People who already registered just log in with their email and password, even after you change it. Leave it empty to close registration.</p>
+          <div class="row" style="align-items:flex-end">
+            <div class="field" style="flex:1;min-width:180px;margin:0"><label for="invCode">Referral code</label>
+              <input id="invCode" name="invite_code" maxlength="60" autocomplete="off" spellcheck="false" value="${esc(team.invite_code)}" placeholder="e.g. GCTEAM2026"></div>
+            <button class="btn primary" type="submit">${icon('check')} Save</button>
+          </div>
+          <div class="error"></div>
+          <button type="button" class="btn ghost sm" data-copy-url style="margin-top:8px">${icon('copy')} Copy registration link</button>
+        </form>
         <div class="card pad-lg">
           <div class="row" style="gap:14px"><span class="avatar-sm avatar-lg">${esc(initials(acc.username))}</span>
             <div><div class="tiny faint strong">SIGNED IN AS</div><h2 style="margin:2px 0 0;font-size:1.3rem">${esc(acc.username)}</h2>
@@ -1046,6 +1158,20 @@ async function viewAccount() {
     </div>
   `);
   setupPasswordToggles();
+  document.querySelector('[data-copy-url]').addEventListener('click', () => copyText(signupUrl(), 'Registration link copied'));
+  const inv = document.getElementById('inviteForm');
+  inv.addEventListener('submit', async e => {
+    e.preventDefault();
+    const err = inv.querySelector('.error');
+    showError(err, '');
+    try {
+      await withLoading(inv.querySelector('button[type=submit]'), () => api('/api/admin/managers/invite-code', { method: 'PUT', body: { invite_code: inv.invite_code.value } }));
+      showToast(inv.invite_code.value.trim() ? 'Referral code saved.' : 'Management registration closed.', 'success');
+    } catch (ex) {
+      if (ex.status === 401) return location.replace('admin-login.html');
+      showError(err, ex.message);
+    }
+  });
   const f = document.getElementById('accountForm');
   f.addEventListener('submit', async e => {
     e.preventDefault();
@@ -1062,7 +1188,6 @@ async function viewAccount() {
         username, new_password: pw, current_password: f.current_password.value,
       }}));
       showToast(pw ? 'Username and password updated.' : 'Username updated.', 'success');
-      showAdminName(res.username);
       viewAccount();
     } catch (ex) {
       if (ex.status === 401) return location.replace('admin-login.html');
@@ -1086,6 +1211,5 @@ setupSidebarToggle();
 window.addEventListener('hashchange', route);
 // Confirms the admin is logged in (redirects to login if not), then shows the page.
 guarded(() => api('/api/admin/overview')).then(o => { setPendingCount(o.pending_claims); route(); hideSplash(); });
-api('/api/admin/account').then(a => showAdminName(a.username)).catch(() => {});
 // Keep the "Payment notes" count fresh while the dashboard stays open.
 setInterval(() => { if (!document.hidden) refreshCounts(); }, 60000);

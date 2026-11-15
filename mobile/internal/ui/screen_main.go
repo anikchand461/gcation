@@ -45,7 +45,7 @@ func (a *App) openCheckout(c api.Course) {
 func (a *App) layoutHome(gtx C) D {
 	me := a.me
 	if a.home.copyID.Clicked(gtx) {
-		a.copyText(gtx, fmt.Sprint(me.Student.ID), "Student ID copied")
+		a.copyText(gtx, me.Student.Code(), "Student ID copied")
 	}
 	var act []api.Course
 	for _, c := range me.Courses {
@@ -167,22 +167,26 @@ func (a *App) homeHero(gtx C, active int) D {
 			}),
 			layout.Rigid(vspace(4)),
 			layout.Rigid(func(gtx C) D { return a.th.label(gtx, sub, textOpt{size: 14, color: rgb(0xdccdf0)}) }),
-			layout.Rigid(vspace(14)),
 			layout.Rigid(func(gtx C) D {
+				if me.Student.Code() == "" {
+					return D{} // students get a Student ID when their first payment is approved
+				}
 				gtx.Constraints.Min.X = 0
-				return a.home.copyID.Layout(gtx, func(gtx C) D {
-					return withBackground(gtx, func(gtx C, size image.Point) {
-						fillRound(gtx, size, 99, argb(0xffffff, 30))
-						strokeRound(gtx, size, 99, 1, argb(0xffffff, 70))
-					}, func(gtx C) D {
-						return layout.Inset{Left: 14, Right: 12, Top: 7, Bottom: 7}.Layout(gtx, func(gtx C) D {
-							return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-								layout.Rigid(func(gtx C) D {
-									return a.th.label(gtx, fmt.Sprintf("Student ID  %d", me.Student.ID), textOpt{size: 13, weight: font.Bold, color: white})
-								}),
-								layout.Rigid(hspace(8)),
-								layout.Rigid(func(gtx C) D { return iconSized(gtx, icCopy, 15, white) }),
-							)
+				return layout.Inset{Top: 14}.Layout(gtx, func(gtx C) D {
+					return a.home.copyID.Layout(gtx, func(gtx C) D {
+						return withBackground(gtx, func(gtx C, size image.Point) {
+							fillRound(gtx, size, 99, argb(0xffffff, 30))
+							strokeRound(gtx, size, 99, 1, argb(0xffffff, 70))
+						}, func(gtx C) D {
+							return layout.Inset{Left: 14, Right: 12, Top: 7, Bottom: 7}.Layout(gtx, func(gtx C) D {
+								return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+									layout.Rigid(func(gtx C) D {
+										return a.th.label(gtx, "Student ID  "+me.Student.Code(), textOpt{size: 13, weight: font.Bold, color: white})
+									}),
+									layout.Rigid(hspace(8)),
+									layout.Rigid(func(gtx C) D { return iconSized(gtx, icCopy, 15, white) }),
+								)
+							})
 						})
 					})
 				})

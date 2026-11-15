@@ -40,11 +40,15 @@ type role string
 const (
 	roleStudent role = "session"
 	roleAdmin   role = "admin"
+	roleManager role = "management"
 )
 
 func roleFor(path string) role {
-	if strings.HasPrefix(path, "/api/admin") {
+	switch {
+	case strings.HasPrefix(path, "/api/admin"):
 		return roleAdmin
+	case strings.HasPrefix(path, "/api/management"):
+		return roleManager
 	}
 	return roleStudent
 }
@@ -56,7 +60,7 @@ func New(base, dataDir string) *Client {
 		dir:    dataDir,
 		tokens: map[role]string{},
 	}
-	for _, r := range []role{roleStudent, roleAdmin} {
+	for _, r := range []role{roleStudent, roleAdmin, roleManager} {
 		if b, err := os.ReadFile(c.tokenPath(r)); err == nil {
 			c.tokens[r] = strings.TrimSpace(string(b))
 		}
@@ -66,9 +70,11 @@ func New(base, dataDir string) *Client {
 
 func (c *Client) tokenPath(r role) string { return filepath.Join(c.dir, string(r)+".token") }
 
-// LoggedIn reports whether a student login is saved; AdminLoggedIn the same for the admin.
-func (c *Client) LoggedIn() bool      { return c.token(roleStudent) != "" }
-func (c *Client) AdminLoggedIn() bool { return c.token(roleAdmin) != "" }
+// LoggedIn reports whether a student login is saved; AdminLoggedIn and ManagerLoggedIn the same
+// for the admin and a management team member.
+func (c *Client) LoggedIn() bool        { return c.token(roleStudent) != "" }
+func (c *Client) AdminLoggedIn() bool   { return c.token(roleAdmin) != "" }
+func (c *Client) ManagerLoggedIn() bool { return c.token(roleManager) != "" }
 
 func (c *Client) token(r role) string {
 	c.mu.Lock()
@@ -271,11 +277,20 @@ type Me struct {
 }
 
 type Student struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	Email     string `json:"email"`
-	Phone     string `json:"phone"`
-	CreatedAt int64  `json:"created_at"`
+	ID          int64   `json:"id"` // internal account number, not shown to people
+	Name        string  `json:"name"`
+	Email       string  `json:"email"`
+	Phone       string  `json:"phone"`
+	CreatedAt   int64   `json:"created_at"`
+	StudentCode *string `json:"student_code"` // Student ID, e.g. GCS001; nil until the first payment is approved
+}
+
+// Code is the Student ID (e.g. GCS001), or "" when the student has not paid yet.
+func (s Student) Code() string {
+	if s.StudentCode == nil {
+		return ""
+	}
+	return *s.StudentCode
 }
 
 type Course struct {
@@ -309,15 +324,17 @@ type Access struct {
 }
 
 type Claim struct {
-	QRSlot     string   `json:"qr_slot"`
-	PayerName  string   `json:"payer_name"`
-	Method     string   `json:"method"`
-	Amount     *float64 `json:"amount"`
-	PaidOn     string   `json:"paid_on"`
-	Reference  string   `json:"reference"`
-	Age        *int     `json:"age"`
-	ReferredBy string   `json:"referred_by"`
-	CreatedAt  int64    `json:"created_at"`
+	QRSlot        string   `json:"qr_slot"`
+	PayerName     string   `json:"payer_name"`
+	Method        string   `json:"method"`
+	Amount        *float64 `json:"amount"`
+	PaidOn        string   `json:"paid_on"`
+	Reference     string   `json:"reference"`
+	Age           *int     `json:"age"`
+	ReferredBy    string   `json:"referred_by"`
+	ReferralID    string   `json:"referral_id"`
+	HasScreenshot bool     `json:"has_screenshot"`
+	CreatedAt     int64    `json:"created_at"`
 }
 
 type ClaimIn struct {
@@ -330,6 +347,8 @@ type ClaimIn struct {
 	Reference  string   `json:"reference"`
 	Age        *int     `json:"age"`
 	ReferredBy string   `json:"referred_by"`
+	ReferralID string   `json:"referral_id"` // Management ID, e.g. GCM001
+	Screenshot string   `json:"screenshot"`  // base64 PNG/JPEG
 }
 
 type Payment struct {

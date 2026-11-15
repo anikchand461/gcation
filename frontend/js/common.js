@@ -3,8 +3,8 @@
 // ---------- Login tokens ----------
 // The website and the API live on different sites (e.g. vercel.app and onrender.com), where browsers
 // do not send login cookies. So each login stores a token and every request sends it as a Bearer header.
-const TOKEN_KEYS = { student: 'gc-token', admin: 'gc-admin-token' };
-const roleFor = path => (path.startsWith('/api/admin') ? 'admin' : 'student');
+const TOKEN_KEYS = { student: 'gc-token', admin: 'gc-admin-token', management: 'gc-management-token' };
+const roleFor = path => (path.startsWith('/api/admin') ? 'admin' : path.startsWith('/api/management') ? 'management' : 'student');
 
 function getToken(role) {
   try { return localStorage.getItem(TOKEN_KEYS[role]) || ''; } catch { return ''; }
@@ -127,11 +127,15 @@ function supportPhones(adminPhone) {
 // Phones open their mail app with mailto:. Computers often have no mail app set up, so they
 // open Gmail's compose page in a new tab instead.
 const IS_PHONE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-function mailLink(subject = '', body = '') {
-  const href = IS_PHONE
+function mailHref(subject = '', body = '') {
+  return IS_PHONE
     ? `mailto:${HELP_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
     : `https://mail.google.com/mail/?view=cm&fs=1&to=${HELP_EMAIL}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  return `<a class="btn outline" href="${esc(href)}"${IS_PHONE ? '' : ' target="_blank" rel="noopener"'}>${icon('mail')} ${esc(HELP_EMAIL)}</a>`;
+}
+// Extra attributes so the Gmail page opens in a new tab on computers.
+const MAIL_TARGET = IS_PHONE ? '' : ' target="_blank" rel="noopener"';
+function mailLink(subject = '', body = '') {
+  return `<a class="btn outline" href="${esc(mailHref(subject, body))}"${MAIL_TARGET}>${icon('mail')} ${esc(HELP_EMAIL)}</a>`;
 }
 
 // Phone helpers: tel: link and WhatsApp link (assumes India when no country code).
@@ -355,6 +359,34 @@ function thumbUrl(c) {
 function courseThumb(c, extra = '') {
   const url = thumbUrl(c);
   return `<div class="course-thumb ${thumbClass(c.id)} ${extra}">${url ? `<img src="${url}" alt="" loading="lazy">` : icon('graduation')}</div>`;
+}
+
+// Reads an image file as a data URL, shrinking big photos and screenshots (longest side at most
+// maxSide pixels, saved as JPEG) so the upload stays well under the server's 2 MB limit.
+function prepareImage(file, maxSide = 1200) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read the file.'));
+    reader.onload = () => {
+      const okType = ['image/png', 'image/jpeg', 'image/webp'].includes(file.type);
+      if (okType && file.size <= 1.5 * 1024 * 1024) return resolve(reader.result);
+      const img = new Image();
+      img.onerror = () => reject(new Error('Upload a PNG or JPG image.'));
+      img.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.9));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 // Downloads a file from the API with the login token, e.g. a receipt PDF.

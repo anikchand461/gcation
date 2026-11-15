@@ -13,6 +13,8 @@ import (
 	"unicode"
 
 	"gioui.org/op"
+
+	"gcation/mobile/internal/api"
 )
 
 var ist = time.FixedZone("IST", 5*3600+1800)
@@ -180,14 +182,33 @@ func waURL(phone, msg string) string {
 	return u
 }
 
-// upiURL opens any installed UPI app with the payee, amount and Student ID filled in.
-func upiURL(upiID, payee string, amount float64, studentID int64) string {
+// upiURL opens any installed UPI app with the payee, amount and a note filled in. The note
+// lets the admin match the bank entry to the student (see studentRef).
+func upiURL(upiID, payee string, amount float64, note string) string {
 	if payee == "" {
 		payee = "G-CATION"
 	}
 	return fmt.Sprintf("upi://pay?pa=%s&pn=%s&am=%.2f&cu=INR&tn=%s",
 		strings.ReplaceAll(url.QueryEscape(upiID), "%40", "@"), url.QueryEscape(payee), amount,
-		url.QueryEscape(fmt.Sprintf("GCATION ID %d", studentID)))
+		url.QueryEscape("GCATION "+note))
+}
+
+// studentRef is how the team finds a student: their Student ID (GCS001) once their first
+// payment is approved, otherwise their email.
+func studentRef(s api.Student) string {
+	if s.Code() != "" {
+		return "Student ID " + s.Code()
+	}
+	return s.Email
+}
+
+// studentLines is the identity part of messages to the team.
+func studentLines(s api.Student) string {
+	lines := ""
+	if s.Code() != "" {
+		lines = "Student ID: " + s.Code() + "\n"
+	}
+	return lines + "Name: " + s.Name + "\nEmail: " + s.Email
 }
 
 func greeting() string {

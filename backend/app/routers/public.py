@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
 from psycopg import Connection
 
-from ..access import COURSE_COLUMNS, public_course
+from ..access import COURSE_COLUMNS, get_setting, public_course
 from ..db import get_db
 from ..schemas import QrSlot
 
@@ -11,6 +11,12 @@ router = APIRouter()
 @router.get("/")
 def health():
     return {"status": "ok", "service": "G-CATION API"}
+
+
+@router.get("/api/contact")
+def contact(db: Connection = Depends(get_db)):
+    """The support number the admin set, for the website footer."""
+    return {"contact_phone": get_setting(db, "contact_phone")}
 
 
 @router.get("/api/courses")

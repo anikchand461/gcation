@@ -35,6 +35,7 @@ const (
 	moreCourses
 	moreCourseEdit
 	moreAccount
+	moreManagement
 )
 
 // adminState is everything the admin side shows and edits.
@@ -56,11 +57,14 @@ type adminState struct {
 	methods  []api.AdminMethod
 	phone    string
 	username string
+	invite   string        // referral code management members need to register
+	managers []api.Manager // management team
 
 	search  *field
 	filter  int
 	paySeg  int
 	detail  *studentDetail
+	shot    *api.ClaimRow // payment screenshot being viewed
 	compose composer
 	sub     moreScreen
 	more    moreState
@@ -70,11 +74,13 @@ type adminState struct {
 }
 
 func (s *adminState) canGoBack() bool {
-	return s.detail != nil || s.sub != moreNone || s.tab != aOverview
+	return s.shot != nil || s.detail != nil || s.sub != moreNone || s.tab != aOverview
 }
 
 func (s *adminState) back() {
 	switch {
+	case s.shot != nil:
+		s.shot = nil
 	case s.detail != nil:
 		s.detail = nil
 	case s.sub == moreCourseEdit:
@@ -87,7 +93,7 @@ func (s *adminState) back() {
 }
 
 func (a *App) startAdmin() {
-	s := &adminState{search: newField("", "Search name, email, phone or ID", false, key.HintAny)}
+	s := &adminState{search: newField("", "Search name, email, phone or Student ID", false, key.HintAny)}
 	s.compose.init()
 	s.more.init()
 	a.admin = s
@@ -114,6 +120,8 @@ func (a *App) adminReload() {
 			methods  []api.AdminMethod
 			phone    string
 			user     string
+			invite   string
+			managers []api.Manager
 		)
 		var err error
 		steps := []func() error{
@@ -126,6 +134,7 @@ func (a *App) adminReload() {
 			func() (e error) { methods, e = a.api.PaymentMethods(); return },
 			func() (e error) { phone, e = a.api.SupportPhone(); return },
 			func() (e error) { user, e = a.api.AdminAccount(); return },
+			func() (e error) { invite, managers, e = a.api.Managers(); return },
 		}
 		for _, step := range steps {
 			if err = step(); err != nil {
@@ -146,6 +155,7 @@ func (a *App) adminReload() {
 			s.ov, s.claims, s.students, s.payments = ov, claims, students, payments
 			s.anns, s.audience, s.courses, s.methods = anns, aud, courses, methods
 			s.phone, s.username = phone, user
+			s.invite, s.managers = invite, managers
 			a.admin.more.fill(s)
 		}
 	})
@@ -187,7 +197,7 @@ func (a *App) layoutAdmin(gtx C) D {
 	s := a.admin
 	for i := range s.nav {
 		if s.nav[i].Clicked(gtx) {
-			s.tab, s.detail, s.sub = adminTab(i), nil, moreNone
+			s.tab, s.detail, s.sub, s.shot = adminTab(i), nil, moreNone, nil
 			a.adminReload()
 		}
 	}
@@ -197,6 +207,9 @@ func (a *App) layoutAdmin(gtx C) D {
 	}
 	if s.theme.Clicked(gtx) {
 		a.toggleTheme()
+	}
+	if s.shot != nil {
+		return a.safeArea(gtx, a.layoutScreenshot)
 	}
 	if s.detail != nil {
 		return a.safeArea(gtx, a.layoutStudentDetail)
@@ -411,9 +424,12 @@ func (a *App) claimRows(gtx C, limit int) D {
 			break
 		}
 		c := c
-		verify, dismiss := a.clk(fmt.Sprint("claim.v", c.ID)), a.clk(fmt.Sprint("claim.d", c.ID))
+		verify, dismiss, shot := a.clk(fmt.Sprint("claim.v", c.ID)), a.clk(fmt.Sprint("claim.d", c.ID)), a.clk(fmt.Sprint("claim.s", c.ID))
 		if verify.Clicked(gtx) {
 			a.openStudent(c.StudentID, c.ID)
+		}
+		if shot.Clicked(gtx) {
+			s.shot = &c
 		}
 		if dismiss.Clicked(gtx) {
 			a.confirm("Dismiss this payment note?", "Do this only if no matching payment arrived in your account.", "Dismiss", true, func() {
@@ -425,7 +441,7 @@ func (a *App) claimRows(gtx C, limit int) D {
 			amount = rupees(*c.Amount)
 		}
 		parts := []string{a.qrLabel(c.QRSlot)}
-		for _, p := range []string{c.Method, c.Reference, prefix("ref. ", c.ReferredBy)} {
+		for _, p := range []string{c.Method, c.Reference, prefix("ref. ", referralText(c))} {
 			if p != "" {
 				parts = append(parts, p)
 			}
@@ -435,11 +451,15 @@ func (a *App) claimRows(gtx C, limit int) D {
 			return a.listRow(gtx, nil, func(gtx C) D { return a.th.avatar(gtx, c.StudentName, 40) },
 				c.StudentName+" · "+amount, c.CourseTitle+"\n"+strings.Join(parts, " · "),
 				func(gtx C) D {
-					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					kids := []layout.FlexChild{}
+					if c.HasScreenshot {
+						kids = append(kids, a.barIcon(shot, icEye, 0), layout.Rigid(hspace(4)))
+					}
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx, append(kids,
 						layout.Rigid(func(gtx C) D { return a.th.button(gtx, verify, "Verify", btnOpt{kind: btnSuccess, small: true}) }),
 						layout.Rigid(hspace(4)),
 						a.barIcon(dismiss, icClose, 0),
-					)
+					)...)
 				})
 		})
 	}
@@ -532,7 +552,7 @@ func (a *App) layoutAdminStudents(gtx C) D {
 	var shown []api.StudentRow
 	counts := make([]int, len(studentFilters))
 	for _, st := range s.students {
-		if q != "" && !strings.Contains(strings.ToLower(st.Name+" "+st.Email+" "+st.Phone+" "+fmt.Sprint(st.ID)), q) {
+		if q != "" && !strings.Contains(strings.ToLower(st.Name+" "+st.Email+" "+st.Phone+" "+st.Code()), q) {
 			continue
 		}
 		for f := range studentFilters {
@@ -580,7 +600,7 @@ func (a *App) layoutAdminStudents(gtx C) D {
 				}
 				rows = append(rows, func(gtx C) D {
 					return a.listRow(gtx, clk, func(gtx C) D { return a.th.avatar(gtx, st.Name, 42) }, st.Name,
-						fmt.Sprintf("#%d · %s", st.ID, st.Email), func(gtx C) D { return a.studentBadge(gtx, st) })
+						joinDot(st.Code(), st.Email), func(gtx C) D { return a.studentBadge(gtx, st) })
 				})
 			}
 			return a.group(gtx, rows)

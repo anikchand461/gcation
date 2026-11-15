@@ -103,6 +103,7 @@ const (
 type btnOpt struct {
 	kind  btnKind
 	icon  *widget.Icon
+	logo  func(gtx C, size unit.Dp, c color.NRGBA) D // drawn instead of icon, e.g. githubMark
 	full  bool
 	small bool
 	busy  bool
@@ -167,7 +168,12 @@ func (t *Theme) button(gtx C, clk *widget.Clickable, label string, o btnOpt) D {
 				return layout.Center.Layout(gtx, func(gtx C) D {
 					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 						layout.Rigid(func(gtx C) D {
-							if o.icon == nil || o.busy {
+							switch {
+							case o.busy:
+								return D{}
+							case o.logo != nil:
+								return layout.Inset{Right: 8}.Layout(gtx, func(gtx C) D { return o.logo(gtx, ic, fg) })
+							case o.icon == nil:
 								return D{}
 							}
 							return layout.Inset{Right: 8}.Layout(gtx, func(gtx C) D { return iconSized(gtx, o.icon, ic, fg) })

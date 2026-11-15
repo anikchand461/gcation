@@ -9,8 +9,28 @@ import qrcode.image.svg
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from psycopg import Connection
 
-from .. import auth
-from ..access import COURSE_COLUMNS, DAY, METHOD_COLUMNS, get_setting, NO_ACCESS, get_course, load_access, method_out, now, student_out
+from .. import auth, screenshots
+from ..access import (
+    ANNOUNCEMENT_COLUMNS,
+    CLAIM_COLUMNS,
+    COURSE_COLUMNS,
+    audience_label,
+    course_titles,
+    DAY,
+    METHOD_COLUMNS,
+    NO_ACCESS,
+    claim_out,
+    get_course,
+    get_setting,
+    give_student_no,
+    load_access,
+    manager_out,
+    method_out,
+    now,
+    number_from_code,
+    student_code,
+    student_out,
+)
 from ..db import get_db
 from ..images import decode_image
 from ..receipts import load_grant, pdf_response, receipt_no
@@ -20,6 +40,7 @@ from ..schemas import (
     AnnouncementIn,
     CourseIn,
     GrantIn,
+    InviteCodeIn,
     PasswordResetIn,
     PaymentMethodIn,
     QrImageIn,
@@ -115,9 +136,9 @@ def students(q: str = "", db: Connection = Depends(get_db)):
     q = q.strip()
     like = f"%{q}%"
     rows = db.execute(
-        "SELECT * FROM students WHERE name ILIKE %s OR email ILIKE %s OR phone ILIKE %s OR id::text = %s "
+        "SELECT * FROM students WHERE name ILIKE %s OR email ILIKE %s OR phone ILIKE %s OR student_no = %s "
         "ORDER BY created_at DESC",
-        (like, like, like, q),
+        (like, like, like, number_from_code("GCS", q) if q else None),
     ).fetchall()
     courses = db.execute("SELECT id, title FROM courses ORDER BY id").fetchall()
     access = load_access(db)
@@ -151,7 +172,8 @@ def student_detail(student_id: int, db: Connection = Depends(get_db)):
         (student_id,),
     ).fetchall()
     claims = db.execute(
-        "SELECT p.*, c.title AS course_title FROM payment_claims p JOIN courses c ON c.id = p.course_id "
+        f"SELECT {CLAIM_COLUMNS}, c.title AS course_title, mg.name AS referral_name FROM payment_claims p "
+        "JOIN courses c ON c.id = p.course_id LEFT JOIN managers mg ON mg.id = p.manager_id "
         "WHERE p.student_id = %s ORDER BY p.created_at DESC",
         (student_id,),
     ).fetchall()
@@ -159,7 +181,7 @@ def student_detail(student_id: int, db: Connection = Depends(get_db)):
         "student": student_out(s),
         "courses": [c | {"access": access.get((student_id, c["id"]), NO_ACCESS)} for c in courses],
         "enrollments": [e | {"receipt_no": receipt_no(e)} for e in enrollments],
-        "claims": claims,
+        "claims": [claim_out(c) for c in claims],
     }
 
 
@@ -210,6 +232,9 @@ def grant(student_id: int, body: GrantIn, db: Connection = Depends(get_db)):
                 (body.claim_id, student_id),
             )
             claim_id = body.claim_id if cur.rowcount else None
+            if claim_id is not None:
+                screenshots.schedule_delete(db, claim_id)
+        give_student_no(db, student_id)  # a paid student gets their Student ID now
         db.execute(
             "INSERT INTO enrollments (student_id, course_id, start_at, end_at, amount_paid, note, granted_at, claim_id) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
@@ -238,23 +263,42 @@ def revoke(enrollment_id: int, db: Connection = Depends(get_db)):
 @router.get("/payments", dependencies=[admin])
 def payments(db: Connection = Depends(get_db)):
     rows = db.execute(
-        "SELECT e.*, s.name AS student_name, s.email AS student_email, c.title AS course_title "
+        "SELECT e.*, s.name AS student_name, s.email AS student_email, s.student_no, c.title AS course_title "
         "FROM enrollments e JOIN students s ON s.id = e.student_id JOIN courses c ON c.id = e.course_id "
         "ORDER BY e.granted_at DESC"
     ).fetchall()
     for r in rows:
         r["receipt_no"] = receipt_no(r)
+        r["student_code"] = student_code(r.pop("student_no"))
     return rows
 
 
 @router.get("/claims", dependencies=[admin])
 def claims(status: Literal["pending", "approved", "dismissed"] = "pending", db: Connection = Depends(get_db)):
-    return db.execute(
-        "SELECT p.*, s.name AS student_name, s.email AS student_email, s.phone AS student_phone, c.title AS course_title "
+    rows = db.execute(
+        f"SELECT {CLAIM_COLUMNS}, s.name AS student_name, s.email AS student_email, s.phone AS student_phone, "
+        "s.student_no, c.title AS course_title, mg.name AS referral_name "
         "FROM payment_claims p JOIN students s ON s.id = p.student_id JOIN courses c ON c.id = p.course_id "
-        "WHERE p.status = %s ORDER BY p.created_at DESC",
+        "LEFT JOIN managers mg ON mg.id = p.manager_id WHERE p.status = %s ORDER BY p.created_at DESC",
         (status,),
     ).fetchall()
+    return [claim_out(r) | {"student_code": student_code(r["student_no"])} for r in rows]
+
+
+@router.get("/claims/{claim_id}/screenshot", dependencies=[admin])
+def claim_screenshot(claim_id: int, db: Connection = Depends(get_db)):
+    row = db.execute(
+        "SELECT screenshot, screenshot_type FROM payment_claims WHERE id = %s AND screenshot IS NOT NULL "
+        "AND (screenshot_delete_at IS NULL OR screenshot_delete_at > %s)",
+        (claim_id, now()),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "No screenshot (it is deleted 5 minutes after the payment is approved).")
+    return Response(
+        bytes(row["screenshot"]),
+        media_type=row["screenshot_type"],
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.post("/claims/{claim_id}/dismiss", dependencies=[admin])
@@ -262,6 +306,50 @@ def dismiss_claim(claim_id: int, db: Connection = Depends(get_db)):
     cur = db.execute("UPDATE payment_claims SET status = 'dismissed' WHERE id = %s AND status = 'pending'", (claim_id,))
     if cur.rowcount == 0:
         raise HTTPException(404, "Payment note not found.")
+    return {"ok": True}
+
+
+# ---------- Management team ----------
+
+@router.get("/managers", dependencies=[admin])
+def managers(db: Connection = Depends(get_db)):
+    """Management members with how many payments named them as the referrer."""
+    rows = db.execute(
+        "SELECT m.*, COUNT(p.id) FILTER (WHERE p.status = 'approved') AS approved, "
+        "COUNT(p.id) FILTER (WHERE p.status = 'pending') AS pending "
+        "FROM managers m LEFT JOIN payment_claims p ON p.manager_id = m.id GROUP BY m.id ORDER BY m.id"
+    ).fetchall()
+    return {
+        "invite_code": get_setting(db, "management_invite_code"),
+        "items": [manager_out(m) | {"approved": m["approved"], "pending": m["pending"]} for m in rows],
+    }
+
+
+@router.put("/managers/invite-code", dependencies=[admin])
+def set_invite_code(body: InviteCodeIn, db: Connection = Depends(get_db)):
+    db.execute(
+        "INSERT INTO app_settings (key, value) VALUES ('management_invite_code', %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        (body.invite_code,),
+    )
+    return {"invite_code": body.invite_code}
+
+
+@router.post("/managers/{manager_id}/revoke", dependencies=[admin])
+def revoke_manager(manager_id: int, db: Connection = Depends(get_db)):
+    """Blocks the member's login and logs them out everywhere. Their past referrals are kept."""
+    with db.transaction():
+        cur = db.execute("UPDATE managers SET revoked_at = %s WHERE id = %s AND revoked_at IS NULL", (now(), manager_id))
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Member not found or already revoked.")
+        db.execute("DELETE FROM sessions WHERE manager_id = %s", (manager_id,))
+    return {"ok": True}
+
+
+@router.post("/managers/{manager_id}/restore", dependencies=[admin])
+def restore_manager(manager_id: int, db: Connection = Depends(get_db)):
+    if db.execute("UPDATE managers SET revoked_at = NULL WHERE id = %s", (manager_id,)).rowcount == 0:
+        raise HTTPException(404, "Member not found.")
     return {"ok": True}
 
 
@@ -318,46 +406,58 @@ def remove_payment_qr(slot: QrSlot, db: Connection = Depends(get_db)):
 # ---------- Announcements ----------
 
 def _audience(db: Connection) -> dict:
-    """How many students with active access each announcement target reaches."""
+    """How many people each update target reaches: students with active access ("all" and per
+    course id) and active management members ("management")."""
     access = load_access(db)
     per_course: dict[int, set[int]] = {}
     for (sid, cid), a in access.items():
         if a["status"] == "active":
             per_course.setdefault(cid, set()).add(sid)
     everyone = set().union(*per_course.values()) if per_course else set()
-    return {"all": len(everyone), **{str(cid): len(s) for cid, s in per_course.items()}}
+    team = db.execute("SELECT COUNT(*) AS n FROM managers WHERE revoked_at IS NULL").fetchone()["n"]
+    return {"all": len(everyone), "management": team, **{str(cid): len(s) for cid, s in per_course.items()}}
 
 
 @router.get("/announcements", dependencies=[admin])
 def announcements(db: Connection = Depends(get_db)):
-    items = db.execute(
-        "SELECT a.*, c.title AS course_title FROM announcements a LEFT JOIN courses c ON c.id = a.course_id "
-        "ORDER BY a.created_at DESC"
-    ).fetchall()
+    titles = course_titles(db)
+    items = db.execute(f"SELECT {ANNOUNCEMENT_COLUMNS} FROM announcements a ORDER BY a.created_at DESC").fetchall()
+    for a in items:
+        a["audience_label"] = audience_label(a, titles)
+        # For older apps, which show one course (or none = every paid student).
+        single = not a["to_all_students"] and len(a["course_ids"]) == 1
+        a["course_id"] = a["course_ids"][0] if single else None
+        a["course_title"] = titles.get(a["course_id"]) if single else None
     return {"items": items, "audience": _audience(db)}
+
+
+def _check_courses(db: Connection, course_ids: list[int]) -> None:
+    for cid in course_ids:
+        get_course(db, cid)
 
 
 @router.post("/announcements", dependencies=[admin])
 def create_announcement(body: AnnouncementIn, db: Connection = Depends(get_db)):
-    if body.course_id is not None:
-        get_course(db, body.course_id)
+    _check_courses(db, body.course_ids)
     t = now()
     row = db.execute(
-        "INSERT INTO announcements (title, message, link_url, link_label, course_id, created_at, updated_at) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-        (body.title, body.message, body.link_url, body.link_label, body.course_id, t, t),
+        "INSERT INTO announcements (title, message, link_url, link_label, to_management, to_all_students, course_ids, "
+        "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        (body.title, body.message, body.link_url, body.link_label, body.to_management, body.to_all_students,
+         body.course_ids, t, t),
     ).fetchone()
     return {"ok": True, "id": row["id"]}
 
 
 @router.put("/announcements/{announcement_id}", dependencies=[admin])
 def update_announcement(announcement_id: int, body: AnnouncementIn, db: Connection = Depends(get_db)):
-    if body.course_id is not None:
-        get_course(db, body.course_id)
+    _check_courses(db, body.course_ids)
+    # course_id is cleared: the audience now lives in to_management / to_all_students / course_ids.
     cur = db.execute(
-        "UPDATE announcements SET title = %s, message = %s, link_url = %s, link_label = %s, course_id = %s, updated_at = %s "
-        "WHERE id = %s",
-        (body.title, body.message, body.link_url, body.link_label, body.course_id, now(), announcement_id),
+        "UPDATE announcements SET title = %s, message = %s, link_url = %s, link_label = %s, to_management = %s, "
+        "to_all_students = %s, course_ids = %s, course_id = NULL, updated_at = %s WHERE id = %s",
+        (body.title, body.message, body.link_url, body.link_label, body.to_management, body.to_all_students,
+         body.course_ids, now(), announcement_id),
     )
     if cur.rowcount == 0:
         raise HTTPException(404, "Announcement not found.")
@@ -433,5 +533,9 @@ def delete_course(course_id: int, db: Connection = Depends(get_db)):
         )
     with db.transaction():
         db.execute("DELETE FROM payment_claims WHERE course_id = %s", (course_id,))
-        db.execute("DELETE FROM courses WHERE id = %s", (course_id,))  # its updates are removed with it
+        # Updates sent only to this course go with it; others just stop listing it.
+        db.execute("UPDATE announcements SET course_ids = array_remove(course_ids, %s) WHERE %s = ANY(course_ids)",
+                   (course_id, course_id))
+        db.execute("DELETE FROM announcements WHERE NOT to_management AND NOT to_all_students AND cardinality(course_ids) = 0")
+        db.execute("DELETE FROM courses WHERE id = %s", (course_id,))  # older updates with its course_id go too
     return {"ok": True}
