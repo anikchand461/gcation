@@ -102,6 +102,12 @@ ALTER TABLE courses ADD COLUMN IF NOT EXISTS features TEXT NOT NULL DEFAULT '';
 ALTER TABLE courses ADD COLUMN IF NOT EXISTS thumbnail_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE courses ADD COLUMN IF NOT EXISTS thumbnail_updated_at BIGINT NOT NULL DEFAULT 0;
 
+-- Extra details students give with a payment, printed on the receipt.
+ALTER TABLE payment_claims ADD COLUMN IF NOT EXISTS age SMALLINT;
+ALTER TABLE payment_claims ADD COLUMN IF NOT EXISTS referred_by TEXT NOT NULL DEFAULT '';
+-- The payment note an access grant was verified against (its details go on the receipt).
+ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS claim_id BIGINT REFERENCES payment_claims(id) ON DELETE SET NULL;
+
 -- Site settings edited from the admin dashboard (e.g. the support phone number).
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,

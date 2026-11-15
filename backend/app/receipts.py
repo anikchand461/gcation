@@ -20,10 +20,13 @@ BRAND = (91, 33, 182)
 LINE = (232, 228, 247)
 TINT = (247, 245, 255)
 
+# The payment note (claim) is joined in when the admin verified the grant against one.
 RECEIPT_SQL = (
     "SELECT e.id, e.course_id, e.start_at, e.end_at, e.amount_paid, e.note, e.granted_at, e.revoked_at, e.student_id, "
-    "s.name AS student_name, s.email AS student_email, s.phone AS student_phone, c.title AS course_title "
+    "s.name AS student_name, s.email AS student_email, s.phone AS student_phone, c.title AS course_title, "
+    "p.payer_name, p.method AS paid_using, p.paid_on, p.reference, p.age, p.referred_by, m.label AS paid_to "
     "FROM enrollments e JOIN students s ON s.id = e.student_id JOIN courses c ON c.id = e.course_id "
+    "LEFT JOIN payment_claims p ON p.id = e.claim_id LEFT JOIN payment_methods m ON m.slot = p.qr_slot "
 )
 
 
@@ -49,6 +52,14 @@ def receipt_summary(grant: dict) -> dict:
 
 def _date(ts: int) -> str:
     return datetime.fromtimestamp(ts, IST).strftime("%d %b %Y")
+
+
+def _paid_on(value: str | None) -> str:
+    """'2026-11-15' -> '15 Nov 2026'; anything else is shown as typed."""
+    try:
+        return datetime.strptime(value or "", "%Y-%m-%d").strftime("%d %b %Y")
+    except ValueError:
+        return value or ""
 
 
 def _inr(amount) -> str:
@@ -115,6 +126,8 @@ def build_pdf(g: dict, contact_phone: str = "") -> bytes:
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(*MUTED)
     lines = [f"Student ID: {g['student_id']}", _t(g["student_email"])] + ([_t(g["student_phone"])] if g["student_phone"] else [])
+    if g.get("age"):
+        lines.append(f"Age: {g['age']}")
     for i, line in enumerate(lines):
         pdf.set_xy(18, y + 14 + i * 5.5)
         pdf.cell(0, 5.5, line)
@@ -153,13 +166,44 @@ def build_pdf(g: dict, contact_phone: str = "") -> bytes:
     pdf.set_text_color(*BRAND)
     pdf.cell(cols[2][0], 10, _inr(g["amount_paid"]) + "  ", align="R")
 
-    # Payment details
+    # Payment details: what the student sent with the payment, two per row.
     y = 150
-    if g["note"]:
+    details = [
+        (label, value)
+        for label, value in (
+            ("Paid to", g.get("paid_to")),
+            ("Paid using", g.get("paid_using")),
+            ("Paid by (account name)", g.get("payer_name")),
+            ("Payment date", _paid_on(g.get("paid_on"))),
+            ("UTR / transaction ID", g.get("reference")),
+            ("Referred by", g.get("referred_by")),
+        )
+        if value
+    ]
+    if details:
         pdf.set_xy(18, y)
         pdf.set_font("Helvetica", "B", 8.5)
         pdf.set_text_color(*MUTED)
         pdf.cell(0, 5, "PAYMENT DETAILS")
+        y += 8
+        half = width / 2
+        for i, (label, value) in enumerate(details):
+            x = 18 + (i % 2) * half
+            row_y = y + (i // 2) * 13
+            pdf.set_xy(x, row_y)
+            pdf.set_font("Helvetica", "", 8.5)
+            pdf.set_text_color(*MUTED)
+            pdf.cell(half - 4, 4.5, label)
+            pdf.set_xy(x, row_y + 4.8)
+            pdf.set_font("Helvetica", "B", 10.5)
+            pdf.set_text_color(*INK)
+            pdf.cell(half - 4, 6, _t(value))
+        y += ((len(details) + 1) // 2) * 13 + 4
+    if g["note"]:
+        pdf.set_xy(18, y)
+        pdf.set_font("Helvetica", "B", 8.5)
+        pdf.set_text_color(*MUTED)
+        pdf.cell(0, 5, "NOTES" if details else "PAYMENT DETAILS")
         pdf.set_xy(18, y + 6)
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(*INK)

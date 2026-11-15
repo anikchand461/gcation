@@ -115,9 +115,24 @@ function initials(name) {
   return String(name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 }
 
-// Extra help contacts shown on the student Profile page, next to the admin-set support number.
+// Extra help contacts shown to students, next to the admin-set support number.
 const HELP_PHONE_2 = '+91 89726 21425';
 const HELP_EMAIL = 'gcationadmin27@gmail.com';
+
+// Both support numbers, without blanks or repeats.
+function supportPhones(adminPhone) {
+  return [adminPhone, HELP_PHONE_2].filter((p, i, all) => p && all.indexOf(p) === i);
+}
+
+// Phones open their mail app with mailto:. Computers often have no mail app set up, so they
+// open Gmail's compose page in a new tab instead.
+const IS_PHONE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+function mailLink(subject = '', body = '') {
+  const href = IS_PHONE
+    ? `mailto:${HELP_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    : `https://mail.google.com/mail/?view=cm&fs=1&to=${HELP_EMAIL}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  return `<a class="btn outline" href="${esc(href)}"${IS_PHONE ? '' : ' target="_blank" rel="noopener"'}>${icon('mail')} ${esc(HELP_EMAIL)}</a>`;
+}
 
 // Phone helpers: tel: link and WhatsApp link (assumes India when no country code).
 function telHref(phone) { return 'tel:' + String(phone).replace(/[^\d+]/g, ''); }

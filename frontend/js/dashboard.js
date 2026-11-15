@@ -320,18 +320,29 @@ function stepPay(c) {
   </div>`;
 }
 
+// Apps and ways students pay by, shown in the "Paid using" dropdown.
+const PAY_APPS = ['Google Pay', 'PhonePe', 'Paytm', 'BHIM UPI', 'Amazon Pay', 'CRED', 'WhatsApp Pay', 'MobiKwik',
+  'Navi', 'super.money', 'Bank app (YONO SBI, iMobile, etc.)', 'Net banking / IMPS / NEFT'];
+
 function stepDetails(c) {
   const methods = me.payment.methods;
   const slot = chosenSlot[c.id] || (methods[0] && methods[0].slot) || '';
   return `<form class="card pad-lg" id="claimForm" novalidate>
     <h3 class="card-title">${icon('send')} Share your payment details</h3>
-    <p class="card-sub">This helps us find your payment in seconds. Everything is optional except where you paid.</p>
+    <p class="card-sub">This helps us find your payment in seconds. These details also go on your receipt.</p>
     ${methods.length > 1 ? `<div class="field"><span class="label">Which QR did you pay to?</span>
       <div class="radio-cards">${methods.map(m => `<label><input type="radio" name="qr_slot" value="${m.slot}" ${m.slot === slot ? 'checked' : ''}> ${esc(m.label)}</label>`).join('')}</div></div>`
       : `<input type="hidden" name="qr_slot" value="${slot}">`}
     <div class="row2">
       <div class="field"><label for="cPayer">Name on bank / UPI account</label><input id="cPayer" name="payer_name" maxlength="80" value="${esc(me.student.name)}"></div>
-      <div class="field"><label for="cMethod">Paid using</label><input id="cMethod" name="method" maxlength="60" placeholder="e.g. PhonePe, SBI"></div>
+      <div class="field"><label for="cMethod">Paid using</label>
+        <select id="cMethod" name="method" required><option value="">Select the app you paid with</option>
+          ${PAY_APPS.map(m => `<option>${esc(m)}</option>`).join('')}<option value="other">Other</option></select></div>
+    </div>
+    <div class="field" id="cOtherWrap" hidden><label for="cOther">Which app or bank?</label><input id="cOther" name="method_other" maxlength="60" placeholder="e.g. Kotak 811"></div>
+    <div class="row2">
+      <div class="field"><label for="cAge">Your age</label><input id="cAge" name="age" type="number" min="5" max="100" inputmode="numeric" required></div>
+      <div class="field"><label for="cRefBy">Referred by <span class="faint">(optional)</span></label><input id="cRefBy" name="referred_by" maxlength="80" placeholder="Name of the person who told you about us"></div>
     </div>
     <div class="row2">
       <div class="field"><label for="cAmount">Amount paid (₹)</label><input id="cAmount" name="amount" type="number" min="0" step="0.01" value="${Number(c.price)}"></div>
@@ -351,7 +362,7 @@ function stepCall(c) {
     <div class="center" style="margin-bottom:18px">
       <div class="empty-state" style="padding:4px 0 0"><div class="ico" style="background:var(--green-bg);color:var(--green)">${icon('checkCircle', 'xl')}</div></div>
       <h3 style="margin:0 0 4px;font-size:1.3rem">Almost done!</h3>
-      <p class="muted" style="margin:0">Call us and tell us your Student ID <b class="mono">${me.student.id}</b>. We will unlock your course right after.</p>
+      <p class="muted" style="margin:0">Call or email us with your Student ID <b class="mono">${me.student.id}</b>. We will unlock your course right after.</p>
     </div>
     ${callBox(c)}
     <div class="row between" style="margin-top:18px">
@@ -362,15 +373,15 @@ function stepCall(c) {
 }
 
 function callBox(c) {
-  const phone = me.payment.contact_phone;
-  if (!phone) return `<div class="notice info">${icon('info')}<div>The G-CATION team will verify your payment shortly.</div></div>`;
-  const msg = `Hi G-CATION, I have paid ${rupees(c.price)} for "${c.title}". My Student ID is ${me.student.id} (${me.student.email}).`;
+  const subject = `Payment for ${c.title} - Student ID ${me.student.id}`;
+  const body = `Hi G-CATION,\n\nI have paid ${rupees(c.price)} for "${c.title}".\nStudent ID: ${me.student.id}\nEmail: ${me.student.email}\n\nPlease verify my payment.`;
   return `<div class="call-box">
-    <div><div class="tiny muted strong">G-CATION SUPPORT</div><div class="phone">${esc(phone)}</div></div>
-    <div class="row" style="gap:8px">
-      <a class="btn primary" href="${esc(telHref(phone))}">${icon('phone')} Call</a>
-      <a class="btn outline" href="${esc(waHref(phone, msg))}" target="_blank" rel="noopener">${icon('message')} WhatsApp</a>
-    </div>
+    <div class="tiny muted strong">G-CATION SUPPORT</div>
+    ${supportPhones(me.payment.contact_phone).map(p => `<div class="call-line">
+      <div class="phone">${esc(p)}</div>
+      <a class="btn primary" href="${esc(telHref(p))}">${icon('phone')} Call</a>
+    </div>`).join('')}
+    ${mailLink(subject, body)}
   </div>`;
 }
 
@@ -398,10 +409,12 @@ function statusPanel(c) {
           ${p.amount != null ? `<dt>Amount</dt><dd>${rupees(p.amount)}</dd>` : ''}
           ${p.paid_on ? `<dt>Date</dt><dd>${esc(p.paid_on)}</dd>` : ''}
           ${p.reference ? `<dt>UTR</dt><dd class="mono">${esc(p.reference)}</dd>` : ''}
+          ${p.age ? `<dt>Age</dt><dd>${p.age}</dd>` : ''}
+          ${p.referred_by ? `<dt>Referred by</dt><dd>${esc(p.referred_by)}</dd>` : ''}
         </dl>
         <button type="button" class="btn ghost sm" style="margin-top:12px" data-resend>Made a mistake? Pay or send again</button>
       </div>
-      <div class="card"><h3 class="card-title" style="margin-bottom:12px">${icon('phone')} Speed it up with a call</h3>${callBox(c)}</div>
+      <div class="card"><h3 class="card-title" style="margin-bottom:12px">${icon('phone')} Speed it up: call or email us</h3>${callBox(c)}</div>
     </div>
   </div>`;
 }
@@ -414,7 +427,14 @@ function wireCheckout(c) {
   const again = view.querySelector('[data-resend]');
   if (again) again.addEventListener('click', () => { resend[c.id] = true; enrollStep[c.id] = 1; viewEnroll(c.id); });
   const form = document.getElementById('claimForm');
-  if (form) form.addEventListener('submit', e => sendClaim(e, c));
+  if (form) {
+    form.addEventListener('submit', e => sendClaim(e, c));
+    form.method.addEventListener('change', () => {
+      const other = form.method.value === 'other';
+      document.getElementById('cOtherWrap').hidden = !other;
+      if (other) form.method_other.focus();
+    });
+  }
 }
 
 async function sendClaim(e, c) {
@@ -422,11 +442,15 @@ async function sendClaim(e, c) {
   const f = e.target, err = f.querySelector('.error');
   const slotInput = f.querySelector('[name=qr_slot]:checked') || f.querySelector('[name=qr_slot]');
   const amount = f.amount.value.trim();
+  const method = f.method.value === 'other' ? f.method_other.value.trim() : f.method.value;
+  const age = Number(f.age.value);
   showError(err, '');
+  if (!method) return showError(err, 'Choose the app you paid with.');
+  if (!Number.isInteger(age) || age < 5 || age > 100) return showError(err, 'Enter your age (5 to 100).');
   try {
     await withLoading(f.querySelector('button[type=submit]'), () => api('/api/me/claims', { method: 'POST', body: {
       course_id: c.id, qr_slot: slotInput ? slotInput.value : '',
-      payer_name: f.payer_name.value, method: f.method.value,
+      payer_name: f.payer_name.value, method, age, referred_by: f.referred_by.value,
       amount: amount === '' ? null : Number(amount),
       paid_on: f.paid_on.value, reference: f.reference.value,
     }}));
@@ -548,10 +572,9 @@ function viewProfile() {
         <div class="card pad-lg">
           <h3 class="card-title">${icon('phone')} Need help?</h3>
           <p class="card-sub">Questions about payment, classes or your account.</p>
-          ${[me.payment.contact_phone, HELP_PHONE_2].filter(Boolean).map(p => `<div class="row" style="margin-bottom:8px">
-            <a class="btn outline" href="${esc(telHref(p))}">${icon('phone')} ${esc(p)}</a>
-            <a class="btn outline" href="${esc(waHref(p, `Hi G-CATION, I need help. My Student ID is ${s.id}.`))}" target="_blank" rel="noopener">${icon('message')} WhatsApp</a></div>`).join('')}
-          <div class="row"><a class="btn outline" href="mailto:${HELP_EMAIL}">${icon('mail')} ${HELP_EMAIL}</a></div>
+          ${supportPhones(me.payment.contact_phone).map(p => `<div class="row" style="margin-bottom:8px">
+            <a class="btn outline" href="${esc(telHref(p))}">${icon('phone')} ${esc(p)}</a></div>`).join('')}
+          <div class="row">${mailLink(`Help needed - Student ID ${s.id}`, `Hi G-CATION,\n\nI need help with: \n\nStudent ID: ${s.id}\nEmail: ${s.email}`)}</div>
         </div>
         <button class="btn danger block" id="logoutBtn2">${icon('logout')} Log out</button>
       </div>

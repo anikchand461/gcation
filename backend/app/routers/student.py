@@ -82,7 +82,8 @@ def me(student: dict = Depends(auth.current_student), db: Connection = Depends(g
     claims = {
         c["course_id"]: c
         for c in db.execute(
-            "SELECT DISTINCT ON (course_id) course_id, qr_slot, payer_name, method, amount, paid_on, reference, created_at "
+            "SELECT DISTINCT ON (course_id) course_id, qr_slot, payer_name, method, amount, paid_on, reference, age, referred_by, "
+            "created_at "
             "FROM payment_claims WHERE student_id = %s AND status = 'pending' ORDER BY course_id, id DESC",
             (student["id"],),
         )
@@ -188,9 +189,9 @@ def create_claim(body: ClaimIn, student: dict = Depends(auth.current_student), d
     if pending >= 3:
         raise HTTPException(429, "You already have payment details waiting. Please call the admin.")
     db.execute(
-        "INSERT INTO payment_claims (student_id, course_id, qr_slot, payer_name, method, amount, paid_on, reference, created_at) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (student["id"], body.course_id, body.qr_slot, body.payer_name.strip(), body.method.strip(), body.amount,
-         body.paid_on.strip(), body.reference.strip(), now()),
+        "INSERT INTO payment_claims (student_id, course_id, qr_slot, payer_name, method, amount, paid_on, reference, "
+        "age, referred_by, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (student["id"], body.course_id, body.qr_slot, body.payer_name, body.method, body.amount,
+         body.paid_on, body.reference, body.age, body.referred_by, now()),
     )
     return {"ok": True}

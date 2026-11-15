@@ -23,17 +23,30 @@ type checkoutState struct {
 	busy     bool
 	err      string
 
-	back, iPaid, prevStep, send, call, wa, home, copyUPI, payApp, again widget.Clickable
-	seg                                                                 [2]widget.Clickable
-	pick                                                                [2]widget.Clickable
-	payer, method, amount, date, ref                                    *field
+	back, iPaid, prevStep, send, mail, home, copyUPI, payApp, again widget.Clickable
+	call                                                            [2]widget.Clickable
+	seg                                                             [2]widget.Clickable
+	pick                                                            [2]widget.Clickable
+	payer, methodOther, amount, date, ref, age, referredBy          *field
+	method                                                          int // index into payApps, -1 until chosen
+	methodOpen                                                      bool
 }
+
+// payApps fills the "Paid using" dropdown; the last entry asks the student to type it.
+var payApps = []string{"Google Pay", "PhonePe", "Paytm", "BHIM UPI", "Amazon Pay", "CRED", "WhatsApp Pay", "MobiKwik",
+	"Navi", "super.money", "Bank app (YONO SBI, iMobile, etc.)", "Net banking / IMPS / NEFT", "Other"}
+
+func (s *checkoutState) otherMethod() bool { return s.method == len(payApps)-1 }
 
 func (s *checkoutState) init(a *App, c api.Course) {
 	s.step = 1
 	s.payer = newField("Name on bank / UPI account", "", false, key.HintAny)
 	s.payer.Ed.SetText(a.me.Student.Name)
-	s.method = newField("Paid using", "e.g. PhonePe, SBI", false, key.HintAny)
+	s.method = -1
+	s.methodOther = newField("Which app or bank?", "e.g. Kotak 811", false, key.HintAny)
+	s.age = newField("Your age", "", false, key.HintNumeric)
+	s.age.Ed.Filter = "0123456789"
+	s.referredBy = newField("Referred by (optional)", "Name of the person who told you about us", false, key.HintAny)
 	s.amount = newField("Amount paid (in rupees)", "", false, key.HintNumeric)
 	s.amount.Ed.SetText(strconv.FormatFloat(c.Price, 'f', -1, 64))
 	s.amount.Ed.Filter = "0123456789."
@@ -452,9 +465,19 @@ func (a *App) stepDetails(gtx C, c api.Course) D {
 					return layout.Flex{}.Layout(gtx, ch...)
 				}))
 		}
-		for _, f := range []*field{s.payer, s.method, s.amount, s.date, s.ref} {
-			kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D { return a.th.field(gtx, f) }))
+		fields := func(fs ...*field) {
+			for _, f := range fs {
+				kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D { return a.th.field(gtx, f) }))
+			}
 		}
+		fields(s.payer)
+		kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D {
+			return a.dropdown(gtx, "payapp", "Paid using", "Select the app you paid with", payApps, &s.method, &s.methodOpen)
+		}))
+		if s.otherMethod() {
+			fields(s.methodOther)
+		}
+		fields(s.amount, s.date, s.ref, s.age, s.referredBy)
 		kids = append(kids,
 			layout.Rigid(func(gtx C) D {
 				if s.err == "" {
@@ -478,9 +501,28 @@ func (a *App) stepDetails(gtx C, c api.Course) D {
 func (a *App) sendClaim(c api.Course) {
 	s := a.checkout
 	in := api.ClaimIn{
-		CourseID: c.ID, QRSlot: s.slot, PayerName: s.payer.Text(), Method: s.method.Text(),
-		PaidOn: s.date.Text(), Reference: s.ref.Text(),
+		CourseID: c.ID, QRSlot: s.slot, PayerName: s.payer.Text(),
+		PaidOn: s.date.Text(), Reference: s.ref.Text(), ReferredBy: s.referredBy.Text(),
 	}
+	switch {
+	case s.method < 0:
+		s.err = "Choose the app you paid with."
+		return
+	case s.otherMethod():
+		in.Method = s.methodOther.Text()
+	default:
+		in.Method = payApps[s.method]
+	}
+	if in.Method == "" {
+		s.err = "Type the app or bank you paid with."
+		return
+	}
+	age, err := strconv.Atoi(s.age.Text())
+	if err != nil || age < 5 || age > 100 {
+		s.err = "Enter your age (5 to 100)."
+		return
+	}
+	in.Age = &age
 	if amt := strings.TrimSpace(s.amount.Ed.Text()); amt != "" {
 		v, err := strconv.ParseFloat(amt, 64)
 		if err != nil {
@@ -523,7 +565,7 @@ func (a *App) stepCall(gtx C, c api.Course) D {
 			layout.Rigid(func(gtx C) D { return centered(gtx, "Almost done!", a.th, textOpt{size: 21, weight: font.Bold}) }),
 			layout.Rigid(vspace(6)),
 			layout.Rigid(func(gtx C) D {
-				return centered(gtx, fmt.Sprintf("Call us and tell us your Student ID %d. We unlock your course right after.", a.me.Student.ID),
+				return centered(gtx, fmt.Sprintf("Call or email us with your Student ID %d. We unlock your course right after.", a.me.Student.ID),
 					a.th, textOpt{size: 14, color: a.th.P.Muted})
 			}),
 			layout.Rigid(vspace(16)),
@@ -536,35 +578,40 @@ func (a *App) stepCall(gtx C, c api.Course) D {
 
 func (a *App) callBox(gtx C, c api.Course) D {
 	s := a.checkout
-	phone := a.me.Payment.ContactPhone
-	if phone == "" {
-		return a.th.notice(gtx, icInfo, toneBlue, func(gtx C) D {
-			return a.th.label(gtx, "The G-CATION team will verify your payment shortly.", textOpt{size: 13.5, color: a.th.P.Blue})
-		})
+	phones := supportPhones(a.me.Payment.ContactPhone)
+	for i, p := range phones {
+		if s.call[i].Clicked(gtx) {
+			a.open(telURL(p))
+		}
 	}
-	if s.call.Clicked(gtx) {
-		a.open(telURL(phone))
-	}
-	if s.wa.Clicked(gtx) {
-		a.open(waURL(phone, fmt.Sprintf("Hi G-CATION, I have paid %s for \"%s\". My Student ID is %d (%s).",
-			rupees(c.Price), c.Title, a.me.Student.ID, a.me.Student.Email)))
+	if s.mail.Clicked(gtx) {
+		st := a.me.Student
+		a.open(mailURL(fmt.Sprintf("Payment for %s - Student ID %d", c.Title, st.ID),
+			fmt.Sprintf("Hi G-CATION,\n\nI have paid %s for \"%s\".\nStudent ID: %d\nEmail: %s\n\nPlease verify my payment.",
+				rupees(c.Price), c.Title, st.ID, st.Email)))
 	}
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
 	return tinted(gtx, a.th.P.Lav, 16, 16, func(gtx C) D {
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(func(gtx C) D { return a.th.kicker(gtx, "G-CATION SUPPORT", a.th.P.Muted) }),
-			layout.Rigid(func(gtx C) D { return a.th.label(gtx, phone, textOpt{size: 21, weight: font.Black}) }),
-			layout.Rigid(vspace(12)),
-			layout.Rigid(func(gtx C) D {
-				return layout.Flex{}.Layout(gtx,
-					layout.Flexed(1, func(gtx C) D { return a.th.button(gtx, &s.call, "Call", btnOpt{full: true, icon: icCall}) }),
+		kids := []layout.FlexChild{layout.Rigid(func(gtx C) D { return a.th.kicker(gtx, "G-CATION SUPPORT", a.th.P.Muted) })}
+		for i, p := range phones {
+			kids = append(kids, layout.Rigid(vspace(10)), layout.Rigid(func(gtx C) D {
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Flexed(1, func(gtx C) D { return a.th.label(gtx, p, textOpt{size: 19, weight: font.Black, maxLines: 1}) }),
 					layout.Rigid(hspace(8)),
-					layout.Flexed(1, func(gtx C) D {
-						return a.th.button(gtx, &s.wa, "WhatsApp", btnOpt{full: true, kind: btnOutline, icon: icChat})
-					}),
+					layout.Rigid(func(gtx C) D { return a.th.button(gtx, &s.call[i], "Call", btnOpt{small: true, icon: icCall}) }),
 				)
-			}),
-		)
+			}))
+		}
+		kids = append(kids, layout.Rigid(vspace(10)), layout.Rigid(func(gtx C) D {
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Flexed(1, func(gtx C) D { return a.th.label(gtx, helpEmail, textOpt{size: 14.5, weight: font.Bold, maxLines: 1}) }),
+				layout.Rigid(hspace(8)),
+				layout.Rigid(func(gtx C) D {
+					return a.th.button(gtx, &s.mail, "Email", btnOpt{small: true, kind: btnOutline, icon: icMail})
+				}),
+			)
+		}))
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 	})
 }
 
@@ -633,7 +680,11 @@ func (a *App) statusPanel(gtx C, c api.Course) []layout.Widget {
 		if m, ok := a.method(p.QRSlot); ok {
 			lines = append(lines, [2]string{"Paid to", m.Label})
 		}
-		for _, kv := range [][2]string{{"Payer", p.PayerName}, {"Using", p.Method}, {"Date", p.PaidOn}, {"UTR", p.Reference}} {
+		age := ""
+		if p.Age != nil {
+			age = strconv.Itoa(*p.Age)
+		}
+		for _, kv := range [][2]string{{"Payer", p.PayerName}, {"Using", p.Method}, {"Date", p.PaidOn}, {"UTR", p.Reference}, {"Age", age}, {"Referred", p.ReferredBy}} {
 			if kv[1] != "" {
 				lines = append(lines, kv)
 			}
@@ -674,7 +725,7 @@ func (a *App) statusPanel(gtx C, c api.Course) []layout.Widget {
 	return []layout.Widget{vspace(16), timeline, vspace(12), sent, vspace(12), func(gtx C) D {
 		return a.th.card(gtx, 18, func(gtx C) D {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx C) D { return a.th.title(gtx, "Speed it up with a call", 17) }),
+				layout.Rigid(func(gtx C) D { return a.th.title(gtx, "Speed it up: call or email us", 17) }),
 				layout.Rigid(vspace(12)),
 				layout.Rigid(func(gtx C) D { return a.callBox(gtx, c) }),
 			)

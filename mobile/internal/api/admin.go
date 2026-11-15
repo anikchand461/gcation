@@ -86,6 +86,8 @@ type ClaimRow struct {
 	Amount       *float64 `json:"amount"`
 	PaidOn       string   `json:"paid_on"`
 	Reference    string   `json:"reference"`
+	Age          *int     `json:"age"`
+	ReferredBy   string   `json:"referred_by"`
 	Status       string   `json:"status"`
 	CreatedAt    int64    `json:"created_at"`
 	StudentName  string   `json:"student_name"`

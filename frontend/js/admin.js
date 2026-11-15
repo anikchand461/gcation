@@ -260,6 +260,7 @@ function renderDrawer() {
         <b>${c.amount != null ? rupees(c.amount) : 'Amount not given'}</b> to ${esc(qrLabel(c.qr_slot))}
         ${c.method ? ' via ' + esc(c.method) : ''}${c.payer_name ? ' · payer <b>' + esc(c.payer_name) + '</b>' : ''}
         ${c.paid_on ? ' · ' + esc(c.paid_on) : ''}${c.reference ? ' · UTR <span class="mono">' + esc(c.reference) + '</span>' : ''}
+        ${c.age ? ' · age ' + c.age : ''}${c.referred_by ? ' · referred by <b>' + esc(c.referred_by) + '</b>' : ''}
         <div class="tiny" style="margin-top:2px">${esc(c.course_title)} · sent ${fmtDateTime(c.created_at)}</div></div></div>`).join('')}` : ''}
 
     <h3>Give course access</h3>
@@ -465,7 +466,7 @@ async function viewNotes() {
   setView(`
     ${head('Money', 'Payment notes', 'Details students sent after paying. Match them with your bank statement, then verify.')}
     ${rows.length ? `<div class="card table-wrap"><table class="responsive">
-      <thead><tr><th>Student</th><th>Paid to</th><th>Payer</th><th>Using</th><th class="num">Amount</th><th>Date</th><th>UTR</th><th></th></tr></thead>
+      <thead><tr><th>Student</th><th>Paid to</th><th>Payer</th><th>Using</th><th class="num">Amount</th><th>Date</th><th>UTR</th><th>Age</th><th>Referred by</th><th></th></tr></thead>
       <tbody>${rows.map(c => `<tr>
         <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(c.student_name))}</span><div style="min-width:0"><b>${esc(c.student_name)}</b>
           <span>#${c.student_id}${c.student_phone ? ' · <a href="' + esc(telHref(c.student_phone)) + '">' + esc(c.student_phone) + '</a>' : ''} · ${timeAgo(c.created_at)}</span></div></div></td>
@@ -473,6 +474,7 @@ async function viewNotes() {
         <td data-label="Payer">${esc(c.payer_name) || '—'}</td><td data-label="Using">${esc(c.method) || '—'}</td>
         <td data-label="Amount" class="num strong">${c.amount != null ? rupees(c.amount) : '—'}</td><td data-label="Date" class="small">${esc(c.paid_on) || '—'}</td>
         <td data-label="UTR" class="mono small">${esc(c.reference) || '—'}</td>
+        <td data-label="Age" class="small">${c.age || '—'}</td><td data-label="Referred by" class="small">${esc(c.referred_by) || '—'}</td>
         <td class="right actions" style="white-space:nowrap"><button class="btn success sm" data-open="${c.student_id}" data-claim="${c.id}">${icon('check')} Verify</button>
           <button class="btn danger sm" data-dismiss="${c.id}" aria-label="Dismiss">${icon('x')}</button></td>
       </tr>`).join('')}</tbody></table></div>`

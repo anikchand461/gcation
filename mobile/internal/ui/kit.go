@@ -68,6 +68,8 @@ var (
 	icAdd          = mustIcon(icons.ContentAdd)
 	icSettingsMore = mustIcon(icons.NavigationMoreHoriz)
 	icCode         = mustIcon(icons.ActionCode)
+	icExpand       = mustIcon(icons.NavigationExpandMore)
+	icCollapse     = mustIcon(icons.NavigationExpandLess)
 )
 
 func iconSized(gtx C, ic *widget.Icon, size unit.Dp, c color.NRGBA) D {

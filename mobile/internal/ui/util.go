@@ -6,6 +6,8 @@ import (
 	"image"
 	"math"
 	"net/url"
+	"runtime"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -122,6 +124,33 @@ func plural(n int, word string) string {
 		return fmt.Sprintf("%d %s", n, word)
 	}
 	return fmt.Sprintf("%d %ss", n, word)
+}
+
+// Extra help contacts shown to students, next to the admin-set support number.
+const (
+	helpPhone2 = "+91 89726 21425"
+	helpEmail  = "gcationadmin27@gmail.com"
+)
+
+// supportPhones lists both support numbers, without blanks or repeats.
+func supportPhones(adminPhone string) []string {
+	var out []string
+	for _, p := range []string{adminPhone, helpPhone2} {
+		if p != "" && !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// mailURL writes to the help email: the mail app on a phone, Gmail in the browser on a computer
+// (computers often have no mail app set up).
+func mailURL(subject, body string) string {
+	if runtime.GOOS == "android" {
+		esc := func(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") } // mail apps read + literally
+		return "mailto:" + helpEmail + "?subject=" + esc(subject) + "&body=" + esc(body)
+	}
+	return "https://mail.google.com/mail/?view=cm&fs=1&to=" + helpEmail + "&su=" + url.QueryEscape(subject) + "&body=" + url.QueryEscape(body)
 }
 
 // telURL and waURL build phone and WhatsApp links (assumes India when no country code is given).

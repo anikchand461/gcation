@@ -123,6 +123,13 @@ class ClaimIn(BaseModel):
     amount: float | None = Field(default=None, ge=0, le=10_000_000)
     paid_on: str = Field(default="", max_length=20)
     reference: str = Field(default="", max_length=80)
+    age: int | None = Field(default=None, ge=5, le=100)
+    referred_by: str = Field(default="", max_length=80)
+
+    @field_validator("payer_name", "method", "paid_on", "reference", "referred_by")
+    @classmethod
+    def strip(cls, v: str) -> str:
+        return v.strip()
 
 
 class GrantIn(BaseModel):

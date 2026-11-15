@@ -309,23 +309,27 @@ type Access struct {
 }
 
 type Claim struct {
-	QRSlot    string   `json:"qr_slot"`
-	PayerName string   `json:"payer_name"`
-	Method    string   `json:"method"`
-	Amount    *float64 `json:"amount"`
-	PaidOn    string   `json:"paid_on"`
-	Reference string   `json:"reference"`
-	CreatedAt int64    `json:"created_at"`
+	QRSlot     string   `json:"qr_slot"`
+	PayerName  string   `json:"payer_name"`
+	Method     string   `json:"method"`
+	Amount     *float64 `json:"amount"`
+	PaidOn     string   `json:"paid_on"`
+	Reference  string   `json:"reference"`
+	Age        *int     `json:"age"`
+	ReferredBy string   `json:"referred_by"`
+	CreatedAt  int64    `json:"created_at"`
 }
 
 type ClaimIn struct {
-	CourseID  int64    `json:"course_id"`
-	QRSlot    string   `json:"qr_slot"`
-	PayerName string   `json:"payer_name"`
-	Method    string   `json:"method"`
-	Amount    *float64 `json:"amount"`
-	PaidOn    string   `json:"paid_on"`
-	Reference string   `json:"reference"`
+	CourseID   int64    `json:"course_id"`
+	QRSlot     string   `json:"qr_slot"`
+	PayerName  string   `json:"payer_name"`
+	Method     string   `json:"method"`
+	Amount     *float64 `json:"amount"`
+	PaidOn     string   `json:"paid_on"`
+	Reference  string   `json:"reference"`
+	Age        *int     `json:"age"`
+	ReferredBy string   `json:"referred_by"`
 }
 
 type Payment struct {

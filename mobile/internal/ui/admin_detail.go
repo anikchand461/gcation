@@ -298,7 +298,11 @@ func (a *App) studentDetailItems(gtx C, d *studentDetail) []layout.Widget {
 						amount = rupees(*c.Amount)
 					}
 					line := fmt.Sprintf("%s to %s", amount, a.qrLabel(c.QRSlot))
-					for _, p := range []string{prefix("via ", c.Method), prefix("payer ", c.PayerName), c.PaidOn, prefix("UTR ", c.Reference)} {
+					age := ""
+					if c.Age != nil {
+						age = fmt.Sprint("age ", *c.Age)
+					}
+					for _, p := range []string{prefix("via ", c.Method), prefix("payer ", c.PayerName), c.PaidOn, prefix("UTR ", c.Reference), age, prefix("referred by ", c.ReferredBy)} {
 						if p != "" {
 							line += " · " + p
 						}

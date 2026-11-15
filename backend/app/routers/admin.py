@@ -203,16 +203,18 @@ def grant(student_id: int, body: GrantIn, db: Connection = Depends(get_db)):
             start = current["until"]
     end = start + body.days * DAY
     with db.transaction():
-        db.execute(
-            "INSERT INTO enrollments (student_id, course_id, start_at, end_at, amount_paid, note, granted_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (student_id, body.course_id, start, end, body.amount, body.note.strip(), t),
-        )
+        claim_id = None
         if body.claim_id is not None:
-            db.execute(
+            cur = db.execute(
                 "UPDATE payment_claims SET status = 'approved' WHERE id = %s AND student_id = %s",
                 (body.claim_id, student_id),
             )
+            claim_id = body.claim_id if cur.rowcount else None
+        db.execute(
+            "INSERT INTO enrollments (student_id, course_id, start_at, end_at, amount_paid, note, granted_at, claim_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (student_id, body.course_id, start, end, body.amount, body.note.strip(), t, claim_id),
+        )
     return {"ok": True, "start_at": start, "end_at": end}
 
 

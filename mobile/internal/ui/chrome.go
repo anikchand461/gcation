@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"image"
 
 	"gioui.org/font"
@@ -233,6 +234,99 @@ func (a *App) chips(gtx C, key string, labels []string, selected func(i int) boo
 			})
 		})
 	})
+}
+
+// dropdown is a labelled select box: tapping it opens the options in a list below it.
+// selected is the chosen index, or -1 to show hint.
+func (a *App) dropdown(gtx C, key, label, hint string, options []string, selected *int, open *bool) D {
+	toggle := a.clk("dd:" + key)
+	if toggle.Clicked(gtx) {
+		*open = !*open
+	}
+	for i := range options {
+		if a.clk(fmt.Sprint("dd:", key, ":", i)).Clicked(gtx) {
+			*selected, *open = i, false
+		}
+	}
+	text, color := hint, a.th.P.Faint
+	if *selected >= 0 && *selected < len(options) {
+		text, color = options[*selected], a.th.P.Ink
+	}
+	box := func(gtx C) D {
+		return toggle.Layout(gtx, func(gtx C) D {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			return withBackground(gtx, func(gtx C, size image.Point) {
+				fillRound(gtx, size, 13, a.th.P.Field)
+				if *open {
+					strokeRound(gtx, size, 13, 2, a.th.P.Violet)
+				} else {
+					strokeRound(gtx, size, 13, 1, a.th.P.Line2)
+				}
+			}, func(gtx C) D {
+				return layout.Inset{Left: 14, Right: 12, Top: 14, Bottom: 14}.Layout(gtx, func(gtx C) D {
+					ic := icExpand
+					if *open {
+						ic = icCollapse
+					}
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Flexed(1, func(gtx C) D { return a.th.label(gtx, text, textOpt{size: 15.5, color: color, maxLines: 1}) }),
+						layout.Rigid(func(gtx C) D { return iconSized(gtx, ic, 22, a.th.P.Muted) }),
+					)
+				})
+			})
+		})
+	}
+	menu := func(gtx C) D {
+		if !*open {
+			return D{}
+		}
+		return layout.Inset{Top: 6}.Layout(gtx, func(gtx C) D {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			return withBackground(gtx, func(gtx C, size image.Point) {
+				fillRound(gtx, size, 13, a.th.P.Surface)
+				strokeRound(gtx, size, 13, 1, a.th.P.Line2)
+			}, func(gtx C) D {
+				rows := make([]layout.FlexChild, len(options))
+				for i, o := range options {
+					clk, on := a.clk(fmt.Sprint("dd:", key, ":", i)), i == *selected
+					rows[i] = layout.Rigid(func(gtx C) D {
+						return clk.Layout(gtx, func(gtx C) D {
+							gtx.Constraints.Min.X = gtx.Constraints.Max.X
+							return withBackground(gtx, func(gtx C, size image.Point) {
+								if on || clk.Pressed() {
+									fillRound(gtx, size, 10, a.th.P.Lav)
+								}
+							}, func(gtx C) D {
+								return layout.Inset{Left: 14, Right: 14, Top: 12, Bottom: 12}.Layout(gtx, func(gtx C) D {
+									return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+										layout.Flexed(1, func(gtx C) D {
+											return a.th.label(gtx, o, textOpt{size: 15, weight: font.Medium, maxLines: 1})
+										}),
+										layout.Rigid(func(gtx C) D {
+											if !on {
+												return D{}
+											}
+											return iconSized(gtx, icTick, 18, a.th.P.Accent)
+										}),
+									)
+								})
+							})
+						})
+					})
+				}
+				return pad(4).Layout(gtx, func(gtx C) D { return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...) })
+			})
+		})
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx C) D {
+			return layout.Inset{Bottom: 6}.Layout(gtx, func(gtx C) D {
+				return a.th.label(gtx, label, textOpt{size: 13, weight: font.SemiBold, color: a.th.P.Ink2})
+			})
+		}),
+		layout.Rigid(box),
+		layout.Rigid(menu),
+	)
 }
 
 // listRow is a tappable full-width row (avatar or icon, two lines of text, trailing widget).

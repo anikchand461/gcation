@@ -41,7 +41,7 @@ req.Header.Set("Authorization", "Bearer "+token)
 | POST | `/api/me/password` | `{current_password, new_password}`. Logs out other devices. |
 | GET | `/api/me/qr/{course_id}.svg?slot=primary` | UPI QR (SVG) with the course amount filled in. |
 | GET | `/api/me/receipts/{enrollment_id}.pdf` | PDF receipt (own receipts only). `/api/me` lists them under `receipts`. |
-| POST | `/api/me/claims` | "I have paid" note: `{course_id, qr_slot, payer_name, method, amount, paid_on, reference}` |
+| POST | `/api/me/claims` | "I have paid" note: `{course_id, qr_slot, payer_name, method, amount, paid_on, reference, age, referred_by}` |
 | GET | `/api/me/announcements` | `{seen_at, items[]}`. Only for students with active access. |
 | POST | `/api/me/announcements/seen` | Marks all updates as read. |
 

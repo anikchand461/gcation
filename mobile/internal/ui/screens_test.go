@@ -48,6 +48,7 @@ func TestScreenshots(t *testing.T) {
 			{"06-profile", func() { a.tab = tabProfile }},
 			{"07-checkout-pay", func() { a.openCheckout(a.me.Courses[1]) }},
 			{"08-checkout-details", func() { a.checkout.step = 2 }},
+			{"08b-checkout-paid-using", func() { a.checkout.method, a.checkout.methodOpen = 1, true }},
 			{"09-checkout-call", func() { a.checkout.step = 3 }},
 			{"10-checkout-status", func() { a.openCheckout(a.me.Courses[2]) }},
 			{"11-splash", func() { a.checkout, a.screen = nil, scrSplash }},

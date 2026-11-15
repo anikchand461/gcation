@@ -23,6 +23,7 @@ import (
 // or at build time: gogio ... -ldflags "-X main.defaultAPI=http://10.0.2.2:8000".
 var (
 	defaultAPI = "https://gcation.onrender.com"
+	// defaultAPI = "http://10.0.2.2:8000"
 	defaultWeb = "https://gcation.vercel.app"
 )
 

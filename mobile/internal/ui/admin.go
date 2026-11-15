@@ -425,7 +425,7 @@ func (a *App) claimRows(gtx C, limit int) D {
 			amount = rupees(*c.Amount)
 		}
 		parts := []string{a.qrLabel(c.QRSlot)}
-		for _, p := range []string{c.Method, c.Reference} {
+		for _, p := range []string{c.Method, c.Reference, prefix("ref. ", c.ReferredBy)} {
 			if p != "" {
 				parts = append(parts, p)
 			}
