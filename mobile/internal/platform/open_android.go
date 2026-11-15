@@ -5,7 +5,9 @@
 package platform
 
 import (
+	"net/url"
 	"os"
+	"strings"
 
 	"gioui.org/app"
 	"gioui.org/io/event"
@@ -14,30 +16,73 @@ import (
 
 const flagActivityNewTask = 0x10000000
 
-// Open hands the URL to Android (Intent.ACTION_VIEW), which picks the right app.
-// It returns an error if no installed app can open it.
-func Open(url string) error {
+// Open hands the link to Android, which picks the right app. mailto: links open an email app
+// (Gmail etc.) with the address, subject and message filled in; everything else (web pages, tel:,
+// upi:, Google Meet) is opened with ACTION_VIEW. It returns an error if no installed app can open it.
+func Open(link string) error {
+	if strings.HasPrefix(link, "mailto:") {
+		err := compose(link)
+		if err == nil {
+			return nil
+		}
+		// No email app installed: write it in Gmail in the browser instead.
+		return start("android.intent.action.VIEW", gmailWeb(link), nil)
+	}
+	return start("android.intent.action.VIEW", link, nil)
+}
+
+// compose opens an email app (ACTION_SENDTO). Gmail and most mail apps read the address,
+// subject and body from the intent extras, so they are sent there as well as in the link.
+func compose(link string) error {
+	to, q := parseMailto(link)
+	return start("android.intent.action.SENDTO", "mailto:"+url.PathEscape(to), func(env jni.Env, intentClass jni.Class, intent jni.Object) error {
+		putString := jni.GetMethodID(env, intentClass, "putExtra", "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;")
+		putArray := jni.GetMethodID(env, intentClass, "putExtra", "(Ljava/lang/String;[Ljava/lang/String;)Landroid/content/Intent;")
+		addresses := jni.NewObjectArray(env, 1, jni.FindClass(env, "java/lang/String"), jni.Object(jni.JavaString(env, to)))
+		if _, err := jni.CallObjectMethod(env, intent, putArray,
+			jni.Value(jni.JavaString(env, "android.intent.extra.EMAIL")), jni.Value(addresses)); err != nil {
+			return err
+		}
+		for key, value := range map[string]string{"android.intent.extra.SUBJECT": q.Get("subject"), "android.intent.extra.TEXT": q.Get("body")} {
+			if value == "" {
+				continue
+			}
+			if _, err := jni.CallObjectMethod(env, intent, putString,
+				jni.Value(jni.JavaString(env, key)), jni.Value(jni.JavaString(env, value))); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// start builds an Intent with the given action and data link, lets extras add to it, and starts it.
+func start(action, data string, extras func(jni.Env, jni.Class, jni.Object) error) error {
 	return jni.Do(jni.JVMFor(app.JavaVM()), func(env jni.Env) error {
 		uriClass := jni.FindClass(env, "android/net/Uri")
 		parse := jni.GetStaticMethodID(env, uriClass, "parse", "(Ljava/lang/String;)Landroid/net/Uri;")
-		uri, err := jni.CallStaticObjectMethod(env, uriClass, parse, jni.Value(jni.JavaString(env, url)))
+		uri, err := jni.CallStaticObjectMethod(env, uriClass, parse, jni.Value(jni.JavaString(env, data)))
 		if err != nil {
 			return err
 		}
 		intentClass := jni.FindClass(env, "android/content/Intent")
 		newIntent := jni.GetMethodID(env, intentClass, "<init>", "(Ljava/lang/String;Landroid/net/Uri;)V")
-		intent, err := jni.NewObject(env, intentClass, newIntent,
-			jni.Value(jni.JavaString(env, "android.intent.action.VIEW")), jni.Value(uri))
+		intent, err := jni.NewObject(env, intentClass, newIntent, jni.Value(jni.JavaString(env, action)), jni.Value(uri))
 		if err != nil {
 			return err
+		}
+		if extras != nil {
+			if err := extras(env, intentClass, intent); err != nil {
+				return err
+			}
 		}
 		addFlags := jni.GetMethodID(env, intentClass, "addFlags", "(I)Landroid/content/Intent;")
 		if _, err := jni.CallObjectMethod(env, intent, addFlags, jni.Value(flagActivityNewTask)); err != nil {
 			return err
 		}
 		ctx := jni.Object(app.AppContext())
-		start := jni.GetMethodID(env, jni.GetObjectClass(env, ctx), "startActivity", "(Landroid/content/Intent;)V")
-		return jni.CallVoidMethod(env, ctx, start, jni.Value(intent))
+		startActivity := jni.GetMethodID(env, jni.GetObjectClass(env, ctx), "startActivity", "(Landroid/content/Intent;)V")
+		return jni.CallVoidMethod(env, ctx, startActivity, jni.Value(intent))
 	})
 }
 

@@ -11,13 +11,13 @@ import (
 )
 
 type profileState struct {
-	name, phone, cur, next              *field
-	filled                              bool
-	save, changePw, mail, theme, logout widget.Clickable
-	call                                [2]widget.Clickable
-	copyID                              widget.Clickable
-	savingProfile, savingPw             bool
-	profileErr, pwErr                   string
+	name, phone, cur, next                        *field
+	filled                                        bool
+	save, changePw, mail, copyMail, theme, logout widget.Clickable
+	call, copyPhone                               [2]widget.Clickable
+	copyID                                        widget.Clickable
+	savingProfile, savingPw                       bool
+	profileErr, pwErr                             string
 }
 
 func (s *profileState) init() {
@@ -57,6 +57,12 @@ func (a *App) layoutProfile(gtx C) D {
 		if s.call[i].Clicked(gtx) {
 			a.open(telURL(p))
 		}
+		if s.copyPhone[i].Clicked(gtx) {
+			a.copyText(gtx, p, "Number copied")
+		}
+	}
+	if s.copyMail.Clicked(gtx) {
+		a.copyText(gtx, helpEmail, "Email copied")
 	}
 	if s.mail.Clicked(gtx) {
 		a.open(mailURL(fmt.Sprintf("Help needed - Student ID %d", me.Student.ID),
@@ -161,12 +167,31 @@ func (a *App) layoutProfile(gtx C) D {
 				}
 				for i, p := range phones {
 					kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D {
-						return a.th.button(gtx, &s.call[i], "Call "+p, btnOpt{full: true, kind: btnOutline, icon: icCall})
+						return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+							layout.Flexed(1, func(gtx C) D {
+								return a.th.button(gtx, &s.call[i], "Call "+p, btnOpt{full: true, kind: btnOutline, icon: icCall})
+							}),
+							layout.Rigid(hspace(8)),
+							layout.Rigid(func(gtx C) D { return a.th.iconButton(gtx, &s.copyPhone[i], icCopy, 0) }),
+						)
 					}))
 				}
-				kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D {
-					return a.th.button(gtx, &s.mail, helpEmail, btnOpt{full: true, kind: btnOutline, icon: icMail})
-				}))
+				kids = append(kids, layout.Rigid(vspace(16)),
+					layout.Rigid(func(gtx C) D {
+						return a.th.label(gtx, helpEmail, textOpt{size: 15, weight: font.SemiBold, maxLines: 1})
+					}),
+					layout.Rigid(vspace(8)),
+					layout.Rigid(func(gtx C) D {
+						return layout.Flex{}.Layout(gtx,
+							layout.Flexed(1, func(gtx C) D {
+								return a.th.button(gtx, &s.copyMail, "Copy", btnOpt{full: true, kind: btnOutline, icon: icCopy})
+							}),
+							layout.Rigid(hspace(8)),
+							layout.Flexed(1, func(gtx C) D {
+								return a.th.button(gtx, &s.mail, "Email", btnOpt{full: true, kind: btnOutline, icon: icMail})
+							}),
+						)
+					}))
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 			})
 		},

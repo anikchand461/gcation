@@ -23,13 +23,13 @@ type checkoutState struct {
 	busy     bool
 	err      string
 
-	back, iPaid, prevStep, send, mail, home, copyUPI, payApp, again widget.Clickable
-	call                                                            [2]widget.Clickable
-	seg                                                             [2]widget.Clickable
-	pick                                                            [2]widget.Clickable
-	payer, methodOther, amount, date, ref, age, referredBy          *field
-	method                                                          int // index into payApps, -1 until chosen
-	methodOpen                                                      bool
+	back, iPaid, prevStep, send, mail, copyMail, home, copyUPI, payApp, again widget.Clickable
+	call, copyPhone                                                           [2]widget.Clickable
+	seg                                                                       [2]widget.Clickable
+	pick                                                                      [2]widget.Clickable
+	payer, methodOther, amount, date, ref, age, referredBy                    *field
+	method                                                                    int // index into payApps, -1 until chosen
+	methodOpen                                                                bool
 }
 
 // payApps fills the "Paid using" dropdown; the last entry asks the student to type it.
@@ -583,6 +583,12 @@ func (a *App) callBox(gtx C, c api.Course) D {
 		if s.call[i].Clicked(gtx) {
 			a.open(telURL(p))
 		}
+		if s.copyPhone[i].Clicked(gtx) {
+			a.copyText(gtx, p, "Number copied")
+		}
+	}
+	if s.copyMail.Clicked(gtx) {
+		a.copyText(gtx, helpEmail, "Email copied")
 	}
 	if s.mail.Clicked(gtx) {
 		st := a.me.Student
@@ -596,21 +602,28 @@ func (a *App) callBox(gtx C, c api.Course) D {
 		for i, p := range phones {
 			kids = append(kids, layout.Rigid(vspace(10)), layout.Rigid(func(gtx C) D {
 				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Flexed(1, func(gtx C) D { return a.th.label(gtx, p, textOpt{size: 19, weight: font.Black, maxLines: 1}) }),
-					layout.Rigid(hspace(8)),
+					layout.Flexed(1, func(gtx C) D { return a.th.label(gtx, p, textOpt{size: 18, weight: font.Black, maxLines: 1}) }),
+					layout.Rigid(hspace(6)),
+					layout.Rigid(func(gtx C) D { return a.th.iconButton(gtx, &s.copyPhone[i], icCopy, 0) }),
+					layout.Rigid(hspace(6)),
 					layout.Rigid(func(gtx C) D { return a.th.button(gtx, &s.call[i], "Call", btnOpt{small: true, icon: icCall}) }),
 				)
 			}))
 		}
-		kids = append(kids, layout.Rigid(vspace(10)), layout.Rigid(func(gtx C) D {
-			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-				layout.Flexed(1, func(gtx C) D { return a.th.label(gtx, helpEmail, textOpt{size: 14.5, weight: font.Bold, maxLines: 1}) }),
-				layout.Rigid(hspace(8)),
-				layout.Rigid(func(gtx C) D {
-					return a.th.button(gtx, &s.mail, "Email", btnOpt{small: true, kind: btnOutline, icon: icMail})
-				}),
-			)
-		}))
+		kids = append(kids, layout.Rigid(vspace(14)),
+			layout.Rigid(func(gtx C) D { return a.th.label(gtx, helpEmail, textOpt{size: 16, weight: font.Bold, maxLines: 1}) }),
+			layout.Rigid(vspace(8)),
+			layout.Rigid(func(gtx C) D {
+				return layout.Flex{}.Layout(gtx,
+					layout.Flexed(1, func(gtx C) D {
+						return a.th.button(gtx, &s.copyMail, "Copy", btnOpt{full: true, small: true, kind: btnOutline, icon: icCopy})
+					}),
+					layout.Rigid(hspace(8)),
+					layout.Flexed(1, func(gtx C) D {
+						return a.th.button(gtx, &s.mail, "Email", btnOpt{full: true, small: true, kind: btnOutline, icon: icMail})
+					}),
+				)
+			}))
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 	})
 }
