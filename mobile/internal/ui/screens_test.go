@@ -87,6 +87,8 @@ func TestScreenshots(t *testing.T) {
 			{"23-admin-account", func() { a.admin.sub = moreAccount; a.admin.more.fill(a.admin) }},
 			{"24-admin-screenshot", func() {
 				a.admin.sub, a.admin.tab = moreNone, aPayments
+				a.admin.claims[0].Age = &[]int{19}[0]
+				a.admin.claims[0].PaidOn, a.admin.claims[0].PayerName = "2026-11-16", "Priya Sen"
 				c := a.admin.claims[0]
 				a.imgs[c.ScreenshotPath()] = &imgEntry{op: testShot(), ready: true}
 				a.admin.shot = &c

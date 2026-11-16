@@ -6,7 +6,6 @@ import (
 
 	"gioui.org/font"
 	"gioui.org/layout"
-	"gioui.org/widget"
 
 	"gcation/mobile/internal/api"
 )
@@ -44,43 +43,120 @@ func (a *App) registrationURL() string {
 	return strings.TrimRight(a.webURL, "/") + "/management-login.html#register"
 }
 
-// ---------- Payment screenshot ----------
+// ---------- Payment note ----------
 
-// layoutScreenshot shows the screenshot a student uploaded with a payment note.
+// layoutScreenshot shows one payment note in full: every detail the student sent, Accept /
+// Reject, and the payment screenshot (fetched in the background, see prefetchScreenshots).
 func (a *App) layoutScreenshot(gtx C) D {
 	s := a.admin
 	c := s.shot
-	back := a.clk("shot.back")
+	back, accept, reject := a.clk("shot.back"), a.clk("shot.accept"), a.clk("shot.reject")
 	if back.Clicked(gtx) {
 		s.shot = nil
 		return D{}
 	}
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx C) D { return a.subBar(gtx, back, "Payment screenshot") }),
-		layout.Rigid(func(gtx C) D {
-			amount := "amount not given"
-			if c.Amount != nil {
-				amount = rupees(*c.Amount)
-			}
-			return layout.Inset{Left: 16, Right: 16, Bottom: 10}.Layout(gtx, func(gtx C) D {
-				return a.th.muted(gtx, joinDot(c.StudentName, amount, prefix("UTR ", c.Reference)), 13.5)
-			})
-		}),
-		layout.Flexed(1, func(gtx C) D {
-			return layout.Inset{Left: 16, Right: 16, Bottom: 16}.Layout(gtx, func(gtx C) D {
-				op, ok := a.image(c.ScreenshotPath())
-				if !ok {
-					msg := "Loading…"
-					if e := a.imgs[c.ScreenshotPath()]; e != nil && !e.loading {
-						msg = "The screenshot is no longer available. It is deleted 5 minutes after the payment is approved."
+	if accept.Clicked(gtx) {
+		s.shot = nil
+		a.openStudent(c.StudentID, c.ID)
+		return D{}
+	}
+	if reject.Clicked(gtx) {
+		a.confirm("Reject this payment note?", "Do this only if no matching payment arrived in your account. The student can send their details again.", "Reject", true, func() {
+			a.adminDo(func() error { return a.api.DismissClaim(c.ID) }, "Payment note rejected.", func() { s.shot = nil })
+		})
+	}
+	amount := "Amount not given"
+	if c.Amount != nil {
+		amount = rupees(*c.Amount)
+	}
+	age := ""
+	if c.Age != nil {
+		age = fmt.Sprint(*c.Age)
+	}
+	student := c.StudentName
+	if c.StudentCode != nil {
+		student += " · " + *c.StudentCode
+	}
+	rows := [][2]string{
+		{"Student", student}, {"Phone", c.StudentPhone}, {"Course", c.CourseTitle},
+		{"Paid to", a.qrLabel(c.QRSlot)}, {"Paid using", c.Method}, {"Account name", c.PayerName},
+		{"Payment date", c.PaidOn}, {"UTR", c.Reference}, {"Age", age}, {"Referred by", referralText(*c)},
+		{"Sent", fmtDateTime(c.CreatedAt)},
+	}
+	items := []layout.Widget{
+		func(gtx C) D {
+			return a.th.card(gtx, 16, func(gtx C) D {
+				kids := []layout.FlexChild{}
+				kids = append(kids,
+					layout.Rigid(func(gtx C) D { return a.th.label(gtx, amount, textOpt{size: 24, weight: font.Black}) }),
+					layout.Rigid(vspace(10)))
+				for _, kv := range rows {
+					if kv[1] == "" {
+						continue
 					}
-					return layout.Center.Layout(gtx, func(gtx C) D { return centered(gtx, msg, a.th, textOpt{size: 14, color: a.th.P.Muted}) })
+					kids = append(kids, layout.Rigid(func(gtx C) D {
+						return layout.Inset{Bottom: 7}.Layout(gtx, func(gtx C) D {
+							return layout.Flex{}.Layout(gtx,
+								layout.Rigid(func(gtx C) D {
+									gtx.Constraints.Min.X = gtx.Dp(110)
+									return a.th.muted(gtx, kv[0], 13.5)
+								}),
+								layout.Flexed(1, func(gtx C) D { return a.th.label(gtx, kv[1], textOpt{size: 13.5, weight: font.SemiBold}) }),
+							)
+						})
+					}))
 				}
-				gtx.Constraints.Min = gtx.Constraints.Max
-				return widget.Image{Src: op, Fit: widget.Contain, Position: layout.N}.Layout(gtx)
+				kids = append(kids, layout.Rigid(vspace(8)), layout.Rigid(func(gtx C) D {
+					return layout.Flex{}.Layout(gtx,
+						layout.Flexed(1, func(gtx C) D {
+							return a.th.button(gtx, reject, "Reject", btnOpt{full: true, kind: btnDanger, icon: icClose})
+						}),
+						layout.Rigid(hspace(10)),
+						layout.Flexed(1, func(gtx C) D {
+							return a.th.button(gtx, accept, "Accept", btnOpt{full: true, kind: btnSuccess, icon: icTick})
+						}),
+					)
+				}))
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 			})
-		}),
+		},
+		a.groupLabel("PAYMENT SCREENSHOT"),
+		func(gtx C) D {
+			if !c.HasScreenshot {
+				return a.th.muted(gtx, "The student did not attach a screenshot.", 13.5)
+			}
+			op, ok := a.image(c.ScreenshotPath())
+			if !ok {
+				msg := "Loading screenshot…"
+				if e := a.imgs[c.ScreenshotPath()]; e != nil && !e.loading {
+					msg = "The screenshot is no longer available. It is deleted 5 minutes after the payment is approved."
+				}
+				return a.th.card(gtx, 24, func(gtx C) D {
+					return layout.Center.Layout(gtx, func(gtx C) D { return centered(gtx, msg, a.th, textOpt{size: 14, color: a.th.P.Muted}) })
+				})
+			}
+			// Full width, at the picture's own shape.
+			w := gtx.Constraints.Max.X
+			sz := op.Size()
+			h := w * sz.Y / max(1, sz.X)
+			gtx.Constraints = layout.Exact(pt(w, h))
+			return imageBox(gtx, op, pt(w, h), 14)
+		},
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx C) D { return a.subBar(gtx, back, "Payment note") }),
+		layout.Flexed(1, func(gtx C) D { return a.page(gtx, fmt.Sprint("note", c.ID), items) }),
 	)
+}
+
+// prefetchScreenshots starts downloading the screenshots of waiting payment notes, so they are
+// ready by the time the admin opens one.
+func (a *App) prefetchScreenshots() {
+	for _, c := range a.admin.claims {
+		if c.HasScreenshot {
+			a.image(c.ScreenshotPath())
+		}
+	}
 }
 
 // ---------- Management team ----------

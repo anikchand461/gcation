@@ -524,7 +524,7 @@ func (a *App) adminQRPreview(gtx C, me api.AdminMethod, f *methodForm) D {
 // pickQRImage lets the admin choose a QR image from the phone and uploads it.
 func (a *App) pickQRImage(slot string) {
 	go func() {
-		r, err := a.expl.ChooseFile("png", "jpg", "jpeg", "webp")
+		r, err := a.expl.ChooseFile(".png", ".jpg", ".jpeg", ".webp")
 		if err != nil {
 			if !errors.Is(err, explorer.ErrUserDecline) {
 				a.post(func() { a.toast("Could not open the file: "+err.Error(), true) })

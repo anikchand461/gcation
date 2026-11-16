@@ -404,7 +404,7 @@ function callBox(c) {
   return `<div class="call-box">
     <div class="tiny muted strong">G-CATION SUPPORT</div>
     ${supportPhones(me.payment.contact_phone).map(p => `<div class="call-line">
-      <div class="phone">${esc(p)}</div>
+      <div class="call-num">${esc(p)}</div>
       <a class="btn primary" href="${esc(telHref(p))}">${icon('phone')} Call</a>
     </div>`).join('')}
     ${mailLink(subject, body)}
@@ -473,7 +473,7 @@ function wireShot(c, form) {
     showError(err, '');
     if (!file.type.startsWith('image/')) return showError(err, 'Choose an image of your payment (PNG or JPG).');
     try {
-      shots[c.id] = await prepareImage(file, 1600);
+      shots[c.id] = await prepareImage(file, 1400, true);
       drop.querySelector('input').remove(); // keep the same input element so it can be picked again
       drop.innerHTML = shotLabel(shots[c.id]);
       drop.appendChild(input);

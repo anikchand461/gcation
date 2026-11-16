@@ -27,16 +27,17 @@ func (a *App) upiNote() string {
 	return a.me.Student.Email
 }
 
-// The server takes images up to 2 MB. Bigger screenshots are scaled down and saved as JPEG.
+// Screenshots are sent as compact JPEGs (they upload, and later load for the admin, quickly).
+// Only a JPEG that is already this small is sent as it is.
 const (
-	maxShotBytes = 1536 << 10
-	maxShotSide  = 1600
+	maxShotBytes = 400 << 10
+	maxShotSide  = 1400
 )
 
 // pickScreenshot lets the student choose the payment screenshot from the phone.
 func (a *App) pickScreenshot() {
 	go func() {
-		r, err := a.expl.ChooseFile("png", "jpg", "jpeg", "webp")
+		r, err := a.expl.ChooseFile(".png", ".jpg", ".jpeg", ".webp")
 		if err != nil {
 			if !errors.Is(err, explorer.ErrUserDecline) {
 				a.post(func() { a.toast("Could not open the file: "+err.Error(), true) })
@@ -70,7 +71,7 @@ func prepareScreenshot(raw []byte) ([]byte, image.Image, error) {
 		return nil, nil, err
 	}
 	b := img.Bounds()
-	if len(raw) <= maxShotBytes && b.Dx() <= maxShotSide && b.Dy() <= maxShotSide && (format == "png" || format == "jpeg" || format == "webp") {
+	if len(raw) <= maxShotBytes && b.Dx() <= maxShotSide && b.Dy() <= maxShotSide && format == "jpeg" {
 		return raw, img, nil
 	}
 	scale := min(1, float64(maxShotSide)/float64(max(b.Dx(), b.Dy())))
@@ -78,7 +79,7 @@ func prepareScreenshot(raw []byte) ([]byte, image.Image, error) {
 	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src) // transparent areas become white
 	xdraw.CatmullRom.Scale(dst, dst.Bounds(), img, b, draw.Over, nil)
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 82}); err != nil {
 		return nil, nil, err
 	}
 	return buf.Bytes(), dst, nil
@@ -114,7 +115,7 @@ func (a *App) screenshotPicker(gtx C) D {
 								if len(s.shot) > 0 {
 									t = "Screenshot added · tap to change"
 								}
-								return a.th.label(gtx, t, textOpt{size: 14, weight: font.Bold, color: a.th.P.Accent})
+								return centered(gtx, t, a.th, textOpt{size: 14, weight: font.Bold, color: a.th.P.Accent})
 							}),
 						)
 					})

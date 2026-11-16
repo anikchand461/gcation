@@ -494,35 +494,45 @@ async function revoke(enrollmentId) {
 
 // ---------- Payment notes ----------
 
+// One payment note: who paid, every detail they sent, and Screenshot / Accept / Reject.
+function noteCard(c) {
+  const details = [
+    ['Paid to', c.qr_slot ? esc(qrLabel(c.qr_slot)) : ''], ['Paid using', esc(c.method)], ['Account name', esc(c.payer_name)],
+    ['Payment date', esc(c.paid_on)], ['UTR / transaction ID', c.reference ? `<span class="mono">${esc(c.reference)}</span>` : ''],
+    ['Age', c.age ? String(c.age) : ''], ['Referred by', esc(referralText(c))],
+  ].filter(([, v]) => v);
+  return `<article class="card note-card">
+    <div class="note-head">
+      <div class="who"><span class="avatar-sm">${esc(initials(c.student_name))}</span><div style="min-width:0"><b>${esc(c.student_name)}</b>
+        <span>${[c.student_code && esc(c.student_code), c.student_phone && `<a href="${esc(telHref(c.student_phone))}">${esc(c.student_phone)}</a>`, 'sent ' + timeAgo(c.created_at)].filter(Boolean).join(' · ')}</span></div></div>
+      <div class="note-amount"><b>${c.amount != null ? rupees(c.amount) : '—'}</b><span>${esc(c.course_title)}</span></div>
+    </div>
+    <dl class="note-grid">${details.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+    <div class="note-actions">
+      ${shotButton(c)}
+      <span class="grow"></span>
+      <button class="btn danger sm" data-dismiss="${c.id}">${icon('x')} Reject</button>
+      <button class="btn success sm" data-open="${c.student_id}" data-claim="${c.id}">${icon('check')} Accept</button>
+    </div>
+  </article>`;
+}
+
 async function viewNotes() {
   setView(head('Money', 'Payment notes', 'Details students sent after paying. Match them with your bank statement, then verify.') + skeleton(240));
   const rows = await guarded(() => api('/api/admin/claims?status=pending'));
   setPendingCount(rows.length);
   setView(`
-    ${head('Money', 'Payment notes', 'Details students sent after paying. Match them with your bank statement, then verify.')}
-    ${rows.length ? `<div class="card table-wrap"><table class="responsive">
-      <thead><tr><th>Student</th><th>Paid to</th><th>Payer</th><th>Using</th><th class="num">Amount</th><th>Date</th><th>UTR</th><th>Age</th><th>Referred by</th><th>Screenshot</th><th></th></tr></thead>
-      <tbody>${rows.map(c => `<tr>
-        <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(c.student_name))}</span><div style="min-width:0"><b>${esc(c.student_name)}</b>
-          <span>${[c.student_code && esc(c.student_code), c.student_phone && `<a href="${esc(telHref(c.student_phone))}">${esc(c.student_phone)}</a>`, timeAgo(c.created_at)].filter(Boolean).join(' · ')}</span></div></div></td>
-        <td data-label="Paid to">${c.qr_slot ? badge('info', qrLabel(c.qr_slot)) : '<span class="faint">—</span>'}</td>
-        <td data-label="Payer">${esc(c.payer_name) || '—'}</td><td data-label="Using">${esc(c.method) || '—'}</td>
-        <td data-label="Amount" class="num strong">${c.amount != null ? rupees(c.amount) : '—'}</td><td data-label="Date" class="small">${esc(c.paid_on) || '—'}</td>
-        <td data-label="UTR" class="mono small">${esc(c.reference) || '—'}</td>
-        <td data-label="Age" class="small">${c.age || '—'}</td><td data-label="Referred by" class="small">${esc(referralText(c)) || '—'}</td>
-        <td data-label="Screenshot">${shotButton(c) || '<span class="faint">—</span>'}</td>
-        <td class="right actions" style="white-space:nowrap"><button class="btn success sm" data-open="${c.student_id}" data-claim="${c.id}">${icon('check')} Verify</button>
-          <button class="btn danger sm" data-dismiss="${c.id}" aria-label="Dismiss">${icon('x')}</button></td>
-      </tr>`).join('')}</tbody></table></div>`
+    ${head('Money', 'Payment notes', 'Details students sent after paying. Match them with your bank statement, then accept to give course access.')}
+    ${rows.length ? `<div class="stack">${rows.map(noteCard).join('')}</div>`
       : emptyState('checkCircle', 'All caught up', 'No payment notes are waiting. New ones appear here as soon as a student sends them.')}
   `);
   const view = document.getElementById('view');
   view.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => openStudent(Number(b.dataset.open), Number(b.dataset.claim))));
   wireShots(view);
   view.querySelectorAll('[data-dismiss]').forEach(b => b.addEventListener('click', async () => {
-    if (!await confirmDialog({ title: 'Dismiss this payment note?', message: 'Do this only if no matching payment arrived in your account.', confirmText: 'Dismiss', danger: true })) return;
+    if (!await confirmDialog({ title: 'Reject this payment note?', message: 'Do this only if no matching payment arrived in your account. The student can send their details again.', confirmText: 'Reject', danger: true })) return;
     await guarded(() => api(`/api/admin/claims/${b.dataset.dismiss}/dismiss`, { method: 'POST' }));
-    showToast('Payment note dismissed.', 'success');
+    showToast('Payment note rejected.', 'success');
     viewNotes();
   }));
 }

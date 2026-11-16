@@ -363,13 +363,14 @@ function courseThumb(c, extra = '') {
 
 // Reads an image file as a data URL, shrinking big photos and screenshots (longest side at most
 // maxSide pixels, saved as JPEG) so the upload stays well under the server's 2 MB limit.
-function prepareImage(file, maxSide = 1200) {
+// With shrink, small images are re-saved as JPEG too, so they load fast later.
+function prepareImage(file, maxSide = 1200, shrink = false) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Could not read the file.'));
     reader.onload = () => {
       const okType = ['image/png', 'image/jpeg', 'image/webp'].includes(file.type);
-      if (okType && file.size <= 1.5 * 1024 * 1024) return resolve(reader.result);
+      if (okType && !shrink && file.size <= 1.5 * 1024 * 1024) return resolve(reader.result);
       const img = new Image();
       img.onerror = () => reject(new Error('Upload a PNG or JPG image.'));
       img.onload = () => {
@@ -381,7 +382,7 @@ function prepareImage(file, maxSide = 1200) {
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.9));
+        resolve(canvas.toDataURL('image/jpeg', shrink ? 0.82 : 0.9));
       };
       img.src = reader.result;
     };

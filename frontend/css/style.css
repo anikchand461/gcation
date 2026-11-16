@@ -325,7 +325,7 @@ a.user-card:hover{background:rgba(255,255,255,.12)}
 .call-box{display:flex;flex-direction:column;gap:12px;padding:18px;border-radius:16px;background:var(--lav-2);border:1px solid var(--line)}
 .call-box .call-line{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .call-box>.btn{align-self:flex-start;max-width:100%;overflow-wrap:anywhere}
-.call-box .phone{font-family:"Plus Jakarta Sans",sans-serif;font-size:1.35rem;font-weight:800}
+.call-box .call-num{font-family:"Plus Jakarta Sans",sans-serif;font-size:1.35rem;font-weight:800}
 .sent-list{display:grid;grid-template-columns:auto 1fr;gap:8px 18px;font-size:.9rem;margin:0}
 .sent-list dt{color:var(--muted)}.sent-list dd{margin:0;font-weight:650}
 .timeline{list-style:none;margin:0;padding:0;display:grid;gap:0}
@@ -403,6 +403,16 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}th.
 .dropzone{border:2px dashed var(--line-2);border-radius:14px;padding:16px;text-align:center;color:var(--muted);font-size:.86rem;transition:.15s;cursor:pointer;background:var(--tint);display:block}
 .dropzone:hover,.dropzone.over{border-color:var(--purple);color:var(--purple);background:var(--lav)}
 .dropzone .icon{color:var(--purple)}
+.note-card{padding:18px 20px}
+.note-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.note-head .who span a{color:inherit}
+.note-amount{text-align:right}.note-amount b{display:block;font-family:"Plus Jakarta Sans",sans-serif;font-size:1.4rem;font-weight:800}
+.note-amount span{color:var(--muted);font-size:.82rem}
+.note-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px 18px;margin:16px 0;padding:14px 16px;border-radius:14px;background:var(--surface-soft);border:1px solid var(--line)}
+.note-grid dt{font-size:.72rem;font-weight:750;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}
+.note-grid dd{margin:3px 0 0;font-weight:650;font-size:.92rem;overflow-wrap:anywhere}
+.note-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.note-actions .grow{flex:1}
+@media (max-width:560px){.note-amount{text-align:left}.note-actions .btn{flex:1}.note-actions .grow{display:none}}
 .multi{position:relative}
 .multi-btn{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:12px 13px;border:1px solid var(--line-2);border-radius:12px;background:var(--field);color:var(--ink);text-align:left;font:inherit}
 .multi-btn .icon{transform:rotate(90deg);color:var(--muted);transition:transform .15s;flex:none}

@@ -156,6 +156,7 @@ func (a *App) adminReload() {
 			s.anns, s.audience, s.courses, s.methods = anns, aud, courses, methods
 			s.phone, s.username = phone, user
 			s.invite, s.managers = invite, managers
+			a.prefetchScreenshots()
 			a.admin.more.fill(s)
 		}
 	})
@@ -451,10 +452,8 @@ func (a *App) claimRows(gtx C, limit int) D {
 			return a.listRow(gtx, nil, func(gtx C) D { return a.th.avatar(gtx, c.StudentName, 40) },
 				c.StudentName+" · "+amount, c.CourseTitle+"\n"+strings.Join(parts, " · "),
 				func(gtx C) D {
-					kids := []layout.FlexChild{}
-					if c.HasScreenshot {
-						kids = append(kids, a.barIcon(shot, icEye, 0), layout.Rigid(hspace(4)))
-					}
+					// The eye opens the full note: every detail, the screenshot, Accept / Reject.
+					kids := []layout.FlexChild{a.barIcon(shot, icEye, 0), layout.Rigid(hspace(4))}
 					return layout.Flex{Alignment: layout.Middle}.Layout(gtx, append(kids,
 						layout.Rigid(func(gtx C) D { return a.th.button(gtx, verify, "Verify", btnOpt{kind: btnSuccess, small: true}) }),
 						layout.Rigid(hspace(4)),
