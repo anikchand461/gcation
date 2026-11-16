@@ -718,6 +718,13 @@ function audienceOf(a) {
   return [a.to_management && 'management', a.to_all_students && 'all', ...(a.course_ids || []).map(id => 'c' + id)].filter(Boolean);
 }
 
+// Adds https:// to a link typed without it (meet.google.com/abc → https://meet.google.com/abc).
+function fullLink(v) {
+  v = v.trim();
+  if (!v) return '';
+  return 'https://' + v.replace(/^(https?:)?\/+/i, '');
+}
+
 function chosenAudience() {
   return [...document.querySelectorAll('#audList input:checked')].map(i => i.value);
 }
@@ -783,9 +790,10 @@ async function submitAnnouncement(e) {
   e.preventDefault();
   const f = annForm(), err = document.getElementById('annErr');
   const body = {
-    title: f.title.value.trim(), message: f.message.value, link_url: f.link_url.value.trim(),
+    title: f.title.value.trim(), message: f.message.value, link_url: fullLink(f.link_url.value),
     link_label: f.link_label.value,
   };
+  f.link_url.value = body.link_url;
   const picked = chosenAudience();
   body.to_management = picked.includes('management');
   body.to_all_students = picked.includes('all');

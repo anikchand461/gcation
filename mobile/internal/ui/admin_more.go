@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -208,10 +209,22 @@ func (a *App) layoutAdminUpdates(gtx C) D {
 	return a.page(gtx, "a.updates", items)
 }
 
+// fullLink adds https:// to a link typed without it (meet.google.com/abc → https://meet.google.com/abc).
+var linkScheme = regexp.MustCompile(`(?i)^https?:`)
+
+func fullLink(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	return "https://" + strings.TrimLeft(linkScheme.ReplaceAllString(v, ""), "/")
+}
+
 func (a *App) submitAnnouncement(courses []api.AdminCourse) {
 	s := a.admin
 	c := &s.compose
-	in := api.AnnouncementIn{Title: c.title.Text(), Message: c.msg.Ed.Text(), LinkURL: c.link.Text(), LinkLabel: c.label.Text()}
+	in := api.AnnouncementIn{Title: c.title.Text(), Message: c.msg.Ed.Text(), LinkURL: fullLink(c.link.Text()), LinkLabel: c.label.Text()}
+	c.link.Ed.SetText(in.LinkURL)
 	switch {
 	case in.Title == "":
 		a.toast("Add a title.", true)
