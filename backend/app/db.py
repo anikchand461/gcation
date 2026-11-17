@@ -150,6 +150,9 @@ UPDATE announcements SET to_all_students = (course_id IS NULL),
 -- When a management member last opened Updates (for the unread count).
 ALTER TABLE managers ADD COLUMN IF NOT EXISTS announcements_seen_at BIGINT NOT NULL DEFAULT 0;
 
+-- The Referral ID exactly as the student typed it. It can be anything; when it is a management
+-- member's ID (GCM001) the payment is also linked to them through manager_id.
+ALTER TABLE payment_claims ADD COLUMN IF NOT EXISTS referral_code TEXT NOT NULL DEFAULT '';
 -- How the student paid: 'upi' (QR, with UTR and screenshot) or 'cash' (no UTR or screenshot).
 ALTER TABLE payment_claims ADD COLUMN IF NOT EXISTS pay_mode TEXT NOT NULL DEFAULT 'upi' CHECK (pay_mode IN ('upi', 'cash'));
 -- When set, students must give "Referred by" and a Referral ID to pay for the course.

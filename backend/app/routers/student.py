@@ -63,7 +63,7 @@ def me(student: dict = Depends(auth.current_student), db: Connection = Depends(g
         c["course_id"]: claim_out(c)
         for c in db.execute(
             "SELECT DISTINCT ON (course_id) course_id, pay_mode, qr_slot, payer_name, method, amount, paid_on, reference, age, referred_by, "
-            "manager_id, screenshot IS NOT NULL AS has_screenshot, created_at "
+            "referral_code, manager_id, screenshot IS NOT NULL AS has_screenshot, created_at "
             "FROM payment_claims WHERE student_id = %s AND status = 'pending' ORDER BY course_id, id DESC",
             (student["id"],),
         )
@@ -172,22 +172,19 @@ def create_claim(body: ClaimIn, student: dict = Depends(auth.current_student), d
     ).fetchone()["n"]
     if pending >= 3:
         raise HTTPException(429, "You already have payment details waiting. Please call the admin.")
-    manager_id = None
-    if body.referral_id:
-        manager_id = number_from_code("GCM", body.referral_id)
-        active = manager_id is not None and db.execute(
-            "SELECT 1 FROM managers WHERE id = %s AND revoked_at IS NULL", (manager_id,)
-        ).fetchone()
-        if not active:
-            raise HTTPException(
-                400, f"Referral ID {body.referral_id} does not match anyone in the G-CATION team. Check it, or leave it empty."
-            )
+    # The Referral ID is kept as typed. If it is an active management member's ID, the payment is
+    # also counted for them.
+    manager_id = number_from_code("GCM", body.referral_id) if body.referral_id else None
+    if manager_id is not None and not db.execute(
+        "SELECT 1 FROM managers WHERE id = %s AND revoked_at IS NULL", (manager_id,)
+    ).fetchone():
+        manager_id = None
     shot, shot_type = decode_image(body.screenshot) if body.screenshot else (None, "")
     db.execute(
         "INSERT INTO payment_claims (student_id, course_id, pay_mode, qr_slot, payer_name, method, amount, paid_on, "
-        "reference, age, referred_by, manager_id, screenshot, screenshot_type, created_at) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        "reference, age, referred_by, referral_code, manager_id, screenshot, screenshot_type, created_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (student["id"], body.course_id, body.pay_mode, body.qr_slot, body.payer_name, body.method, body.amount,
-         body.paid_on, body.reference, body.age, body.referred_by, manager_id, shot, shot_type, now()),
+         body.paid_on, body.reference, body.age, body.referred_by, body.referral_id, manager_id, shot, shot_type, now()),
     )
     return {"ok": True}

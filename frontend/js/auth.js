@@ -160,6 +160,17 @@ function completeGoogle() {
   withLoading(document.getElementById('gContinue'), () => googleSignIn(googleCredential, { mobile, invite_code: invite }));
 }
 
+// Google draws its own button; it is redrawn to match the theme and the width of the box.
+function renderGoogleButton() {
+  const box = document.getElementById('googleBtn');
+  if (!window.google || !google.accounts || box.closest('[hidden]')) return;
+  box.innerHTML = '';
+  google.accounts.id.renderButton(box, {
+    theme: currentTheme() === 'dark' ? 'filled_black' : 'outline', size: 'large', shape: 'pill',
+    text: 'continue_with', logo_alignment: 'center', width: Math.min(box.clientWidth || 320, 400),
+  });
+}
+
 function loadGoogle() {
   if (!window.GOOGLE_CLIENT_ID) return;
   const s = document.createElement('script');
@@ -167,11 +178,12 @@ function loadGoogle() {
   s.async = true;
   s.onload = () => {
     google.accounts.id.initialize({ client_id: window.GOOGLE_CLIENT_ID, callback: r => googleSignIn(r.credential) });
-    const box = document.getElementById('googleBtn');
-    google.accounts.id.renderButton(box, {
-      theme: currentTheme() === 'dark' ? 'filled_black' : 'outline', size: 'large', shape: 'pill',
-      text: 'continue_with', width: Math.min(box.clientWidth || 340, 400),
-    });
+    renderGoogleButton();
+    // Follow the sun/moon button and the device theme.
+    new MutationObserver(renderGoogleButton).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderGoogleButton);
+    let t;
+    addEventListener('resize', () => { clearTimeout(t); t = setTimeout(renderGoogleButton, 200); });
   };
   document.head.appendChild(s);
 }

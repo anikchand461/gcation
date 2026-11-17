@@ -25,7 +25,7 @@ TINT = (247, 245, 255)
 RECEIPT_SQL = (
     "SELECT e.id, e.course_id, e.start_at, e.end_at, e.amount_paid, e.note, e.granted_at, e.revoked_at, e.student_id, "
     "s.name AS student_name, s.email AS student_email, s.phone AS student_phone, s.student_no, c.title AS course_title, "
-    "p.pay_mode, p.payer_name, p.method AS paid_using, p.paid_on, p.reference, p.age, p.referred_by, p.manager_id, m.label AS paid_to "
+    "p.pay_mode, p.payer_name, p.method AS paid_using, p.paid_on, p.reference, p.age, p.referred_by, p.referral_code, p.manager_id, m.label AS paid_to "
     "FROM enrollments e JOIN students s ON s.id = e.student_id JOIN courses c ON c.id = e.course_id "
     "LEFT JOIN payment_claims p ON p.id = e.claim_id LEFT JOIN payment_methods m ON m.slot = p.qr_slot "
 )
@@ -179,7 +179,7 @@ def build_pdf(g: dict, contact_phone: str = "") -> bytes:
             ("Payment date", _paid_on(g.get("paid_on"))),
             ("UTR / transaction ID", g.get("reference")),
             ("Referred by", g.get("referred_by")),
-            ("Referral ID", manager_code(g.get("manager_id"))),
+            ("Referral ID", manager_code(g.get("manager_id")) or g.get("referral_code")),
         )
         if value
     ]

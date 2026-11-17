@@ -192,7 +192,7 @@ class ClaimIn(BaseModel):
     reference: str = Field(default="", max_length=80)
     age: int | None = Field(default=None, ge=5, le=100)
     referred_by: str = Field(default="", max_length=80)
-    referral_id: str = Field(default="", max_length=20)  # Management ID, e.g. GCM001
+    referral_id: str = Field(default="", max_length=60)  # anything; a Management ID (GCM001) links the referrer
     # Base64 payment screenshot (PNG, JPEG or WEBP). The website requires it; older app
     # versions do not send one yet, so it stays optional here.
     screenshot: str = Field(default="", max_length=3_000_000)

@@ -7,7 +7,6 @@ import (
 	"image/draw"
 	"image/jpeg"
 	"io"
-	"regexp"
 
 	"gioui.org/font"
 	"gioui.org/layout"
@@ -15,9 +14,6 @@ import (
 	"gioui.org/x/explorer"
 	xdraw "golang.org/x/image/draw"
 )
-
-// referralRE matches a Management ID as students type it: "GCM001" or just "1".
-var referralRE = regexp.MustCompile(`^(GCM)?\d{1,9}$`)
 
 // upiNote is the note on the UPI payment: the Student ID once the student has one, else their email.
 func (a *App) upiNote() string {

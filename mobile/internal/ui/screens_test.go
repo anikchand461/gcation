@@ -82,7 +82,7 @@ func TestScreenshots(t *testing.T) {
 				l := a.list("checkout2")
 				l.Position.First, l.Position.Offset = 5, 1250*pxPerDp
 			}},
-			{"08d-checkout-cash", func() { a.checkout.step, a.checkout.cash = 1, true }},
+			{"08d-checkout-cash", func() { a.checkout.step, a.checkout.cash, a.checkout.method = 1, true, cashMethod }},
 			{"08e-checkout-cash-details", func() { a.checkout.step = 2 }},
 			{"09-checkout-call", func() { a.checkout.step, a.checkout.cash = 3, false }},
 			{"10-checkout-status", func() { a.openCheckout(a.me.Courses[2]) }},

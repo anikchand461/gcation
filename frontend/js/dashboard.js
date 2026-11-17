@@ -359,46 +359,25 @@ function stepPay(c) {
 const PAY_APPS = ['Google Pay', 'PhonePe', 'Paytm', 'BHIM UPI', 'Amazon Pay', 'CRED', 'WhatsApp Pay', 'MobiKwik',
   'Navi', 'super.money', 'Bank app (YONO SBI, iMobile, etc.)', 'Net banking / IMPS / NEFT'];
 
+// The details form. "Cash" in Paid using (or the Cash tab on the Pay step) hides the QR choice, the
+// UTR and the screenshot, which cash payments do not have.
 function stepDetails(c) {
   const methods = me.payment.methods;
   const slot = chosenSlot[c.id] || (methods[0] && methods[0].slot) || '';
   const cash = payMode[c.id] === 'cash';
   const optional = c.referral_required ? '' : ' <span class="faint">(optional)</span>';
-  const referral = `<div class="row2">
-      <div class="field"><label for="cRefBy">Referred by${optional}</label><input id="cRefBy" name="referred_by" maxlength="80" placeholder="Name of the person who told you about us" ${c.referral_required ? 'required' : ''}></div>
-      <div class="field"><label for="cRefId">Referral ID${optional}</label><input id="cRefId" name="referral_id" maxlength="20" placeholder="e.g. GCM001" autocomplete="off" spellcheck="false" style="text-transform:uppercase" ${c.referral_required ? 'required' : ''}></div>
-    </div>`;
-  if (cash) {
-    return `<form class="card pad-lg" id="claimForm" novalidate>
-    <h3 class="card-title">${icon('wallet')} Share your cash payment details</h3>
-    <p class="card-sub">This helps us match your cash payment. These details also go on your receipt.</p>
-    <div class="row2">
-      <div class="field"><label for="cPayer">Name of the person who paid</label><input id="cPayer" name="payer_name" maxlength="80" value="${esc(me.student.name)}"></div>
-      <div class="field"><label for="cAge">Your age</label><input id="cAge" name="age" type="number" min="5" max="100" inputmode="numeric" required></div>
-    </div>
-    <div class="row2">
-      <div class="field"><label for="cAmount">Amount paid (₹)</label><input id="cAmount" name="amount" type="number" min="0" step="0.01" value="${Number(c.price)}"></div>
-      <div class="field"><label for="cDate">Date paid</label><input id="cDate" name="paid_on" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
-    </div>
-    ${referral}
-    <div class="error"></div>
-    <div class="row between" style="margin-top:8px">
-      <button type="button" class="btn ghost" data-next="1">${icon('chevron')} Back</button>
-      <button type="submit" class="btn primary lg">${icon('send')} Send details</button>
-    </div>
-  </form>`;
-  }
   return `<form class="card pad-lg" id="claimForm" novalidate>
     <h3 class="card-title">${icon('send')} Share your payment details</h3>
     <p class="card-sub">This helps us find your payment in seconds. These details also go on your receipt.</p>
-    ${methods.length > 1 ? `<div class="field"><span class="label">Which QR did you pay to?</span>
+    ${methods.length > 1 ? `<div class="field" data-upi ${cash ? 'hidden' : ''}><span class="label">Which QR did you pay to?</span>
       <div class="radio-cards">${methods.map(m => `<label><input type="radio" name="qr_slot" value="${m.slot}" ${m.slot === slot ? 'checked' : ''}> ${esc(m.label)}</label>`).join('')}</div></div>`
       : `<input type="hidden" name="qr_slot" value="${slot}">`}
     <div class="row2">
-      <div class="field"><label for="cPayer">Name on bank / UPI account</label><input id="cPayer" name="payer_name" maxlength="80" value="${esc(me.student.name)}"></div>
       <div class="field"><label for="cMethod">Paid using</label>
-        <select id="cMethod" name="method" required><option value="">Select the app you paid with</option>
+        <select id="cMethod" name="method" required><option value="">Select how you paid</option>
+          <option value="Cash" ${cash ? 'selected' : ''}>Cash</option>
           ${PAY_APPS.map(m => `<option>${esc(m)}</option>`).join('')}<option value="other">Other</option></select></div>
+      <div class="field"><label for="cPayer" id="cPayerLabel">${cash ? 'Name of the person who paid' : 'Name on bank / UPI account'}</label><input id="cPayer" name="payer_name" maxlength="80" value="${esc(me.student.name)}"></div>
     </div>
     <div class="field" id="cOtherWrap" hidden><label for="cOther">Which app or bank?</label><input id="cOther" name="method_other" maxlength="60" placeholder="e.g. Kotak 811"></div>
     <div class="row2">
@@ -406,13 +385,17 @@ function stepDetails(c) {
       <div class="field"><label for="cDate">Date paid</label><input id="cDate" name="paid_on" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
     </div>
     <div class="row2">
-      <div class="field"><label for="cRef">UTR / transaction ID</label><input id="cRef" name="reference" maxlength="80" placeholder="12-digit number from your UPI app" required></div>
+      <div class="field" data-upi ${cash ? 'hidden' : ''}><label for="cRef">UTR / transaction ID</label><input id="cRef" name="reference" maxlength="80" placeholder="12-digit number from your UPI app"></div>
       <div class="field"><label for="cAge">Your age</label><input id="cAge" name="age" type="number" min="5" max="100" inputmode="numeric" required></div>
     </div>
-    ${referral}
-    <div class="field"><span class="label">Payment screenshot</span>
+    <div class="row2">
+      <div class="field"><label for="cRefBy">Referred by${optional}</label><input id="cRefBy" name="referred_by" maxlength="80" placeholder="Name of the person who told you about us"></div>
+      <div class="field"><label for="cRefId">Referral ID${optional}</label><input id="cRefId" name="referral_id" maxlength="60" placeholder="The code they gave you" autocomplete="off" spellcheck="false"></div>
+    </div>
+    <div class="field" data-upi ${cash ? 'hidden' : ''}><span class="label">Payment screenshot</span>
       <label class="dropzone" id="shotDrop">${shotLabel(shots[c.id])}<input type="file" accept="image/*" hidden id="shotInput"></label>
       <small>The "payment successful" screen from your UPI app. It is deleted once your payment is verified.</small></div>
+    <div class="notice info" data-cash ${cash ? '' : 'hidden'}>${icon('wallet')}<div>Paid in cash: no UTR or screenshot is needed.</div></div>
     <div class="error"></div>
     <div class="row between" style="margin-top:8px">
       <button type="button" class="btn ghost" data-next="1">${icon('chevron')} Back</button>
@@ -503,10 +486,13 @@ function wireCheckout(c) {
   const form = document.getElementById('claimForm');
   if (form) {
     form.addEventListener('submit', e => sendClaim(e, c));
-    if (payMode[c.id] === 'cash') return;
     form.method.addEventListener('change', () => {
-      const other = form.method.value === 'other';
+      const other = form.method.value === 'other', cash = form.method.value === 'Cash';
+      payMode[c.id] = cash ? 'cash' : 'upi';
       document.getElementById('cOtherWrap').hidden = !other;
+      form.querySelectorAll('[data-upi]').forEach(el => { el.hidden = cash; });
+      form.querySelector('[data-cash]').hidden = !cash;
+      document.getElementById('cPayerLabel').textContent = cash ? 'Name of the person who paid' : 'Name on bank / UPI account';
       if (other) form.method_other.focus();
     });
     wireShot(c, form);
@@ -541,13 +527,12 @@ async function sendClaim(e, c) {
   const method = cash ? 'Cash' : f.method.value === 'other' ? f.method_other.value.trim() : f.method.value;
   const age = Number(f.age.value);
   showError(err, '');
-  if (!method) return showError(err, 'Choose the app you paid with.');
+  if (!method) return showError(err, 'Choose how you paid.');
   const reference = cash ? '' : f.reference.value.trim();
-  const referredBy = f.referred_by.value.trim(), referralId = f.referral_id.value.trim().toUpperCase();
+  const referredBy = f.referred_by.value.trim(), referralId = f.referral_id.value.trim();
   if (!cash && reference.length < 6) return showError(err, 'Enter the UTR / transaction ID from your payment app.');
   if (!Number.isInteger(age) || age < 5 || age > 100) return showError(err, 'Enter your age (5 to 100).');
   if (c.referral_required && (!referredBy || !referralId)) return showError(err, 'This course needs the name and Referral ID of the person who referred you.');
-  if (referralId && !/^(GCM)?\s*\d+$/.test(referralId)) return showError(err, `Referral ID looks like GCM001. Check it${c.referral_required ? '' : ', or leave it empty'}.`);
   if (!cash && !shots[c.id]) return showError(err, 'Upload the screenshot of your payment.');
   try {
     await withLoading(f.querySelector('button[type=submit]'), () => api('/api/me/claims', { method: 'POST', body: {

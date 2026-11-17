@@ -38,11 +38,14 @@ type checkoutState struct {
 	shotPreview                                                               paint.ImageOp // the same screenshot, shown on the form
 }
 
-// payApps fills the "Paid using" dropdown; the last entry asks the student to type it.
-var payApps = []string{"Google Pay", "PhonePe", "Paytm", "BHIM UPI", "Amazon Pay", "CRED", "WhatsApp Pay", "MobiKwik",
+// payApps fills the "Paid using" dropdown. The first is Cash (no QR, UTR or screenshot); the last
+// asks the student to type it.
+var payApps = []string{"Cash", "Google Pay", "PhonePe", "Paytm", "BHIM UPI", "Amazon Pay", "CRED", "WhatsApp Pay", "MobiKwik",
 	"Navi", "super.money", "Bank app (YONO SBI, iMobile, etc.)", "Net banking / IMPS / NEFT", "Other"}
 
 func (s *checkoutState) otherMethod() bool { return s.method == len(payApps)-1 }
+
+const cashMethod = 0 // payApps[cashMethod] is "Cash"
 
 func (s *checkoutState) init(a *App, c api.Course) {
 	s.step = 1
@@ -57,7 +60,7 @@ func (s *checkoutState) init(a *App, c api.Course) {
 		optional = ""
 	}
 	s.referredBy = newField("Referred by"+optional, "Name of the person who told you about us", false, key.HintAny)
-	s.referralID = newField("Referral ID"+optional, "e.g. GCM001", false, key.HintAny)
+	s.referralID = newField("Referral ID"+optional, "The code they gave you", false, key.HintAny)
 	s.amount = newField("Amount paid (in rupees)", "", false, key.HintNumeric)
 	s.amount.Ed.SetText(strconv.FormatFloat(c.Price, 'f', -1, 64))
 	s.amount.Ed.Filter = "0123456789."
@@ -240,6 +243,12 @@ func (a *App) stepPay(gtx C, c api.Course) D {
 	for i := range s.mode {
 		if s.mode[i].Clicked(gtx) {
 			s.cash = i == 1
+			// Keep "Paid using" on the details step in step with the tab.
+			if s.cash {
+				s.method = cashMethod
+			} else if s.method == cashMethod {
+				s.method = -1
+			}
 		}
 	}
 	if s.iPaid.Clicked(gtx) {
@@ -478,6 +487,7 @@ func (a *App) steps(gtx C, lines []string) D {
 
 func (a *App) stepDetails(gtx C, c api.Course) D {
 	s := a.checkout
+	s.cash = s.method == cashMethod // "Cash" in Paid using hides the QR choice, UTR and screenshot
 	methods := a.me.Payment.Methods
 	for i := range methods {
 		if i < 2 && s.pick[i].Clicked(gtx) {
@@ -547,16 +557,21 @@ func (a *App) stepDetails(gtx C, c api.Course) D {
 				kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D { return a.th.field(gtx, f) }))
 			}
 		}
+		kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D {
+			return a.dropdown(gtx, "payapp", "Paid using", "Select how you paid", payApps, &s.method, &s.methodOpen)
+		}))
+		if s.otherMethod() {
+			fields(s.methodOther)
+		}
 		fields(s.payer)
 		if s.cash {
 			fields(s.amount, s.date, s.age, s.referredBy, s.referralID)
-		} else {
-			kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D {
-				return a.dropdown(gtx, "payapp", "Paid using", "Select the app you paid with", payApps, &s.method, &s.methodOpen)
+			kids = append(kids, layout.Rigid(vspace(14)), layout.Rigid(func(gtx C) D {
+				return a.th.notice(gtx, icInfo, toneBlue, func(gtx C) D {
+					return a.th.label(gtx, "Paid in cash: no UTR or screenshot is needed.", textOpt{size: 13, color: a.th.P.Blue})
+				})
 			}))
-			if s.otherMethod() {
-				fields(s.methodOther)
-			}
+		} else {
 			fields(s.amount, s.date, s.ref, s.age, s.referredBy, s.referralID)
 			kids = append(kids, layout.Rigid(vspace(14)), layout.Rigid(func(gtx C) D { return a.screenshotPicker(gtx) }))
 		}
@@ -585,7 +600,7 @@ func (a *App) sendClaim(c api.Course) {
 	in := api.ClaimIn{
 		CourseID: c.ID, PayMode: "upi", QRSlot: s.slot, PayerName: s.payer.Text(),
 		PaidOn: s.date.Text(), Reference: s.ref.Text(), ReferredBy: s.referredBy.Text(),
-		ReferralID: strings.ToUpper(strings.ReplaceAll(s.referralID.Text(), " ", "")),
+		ReferralID: s.referralID.Text(),
 	}
 	if s.cash {
 		in.PayMode, in.QRSlot, in.Method, in.Reference = "cash", "", "Cash", ""
@@ -593,7 +608,7 @@ func (a *App) sendClaim(c api.Course) {
 	switch {
 	case s.cash:
 	case s.method < 0:
-		s.err = "Choose the app you paid with."
+		s.err = "Choose how you paid."
 		return
 	case s.otherMethod():
 		in.Method = s.methodOther.Text()
@@ -616,13 +631,6 @@ func (a *App) sendClaim(c api.Course) {
 	in.Age = &age
 	if c.ReferralRequired && (in.ReferredBy == "" || in.ReferralID == "") {
 		s.err = "This course needs the name and Referral ID of the person who referred you."
-		return
-	}
-	if in.ReferralID != "" && !referralRE.MatchString(in.ReferralID) {
-		s.err = "Referral ID looks like GCM001. Check it, or leave it empty."
-		if c.ReferralRequired {
-			s.err = "Referral ID looks like GCM001. Check it."
-		}
 		return
 	}
 	if !s.cash {

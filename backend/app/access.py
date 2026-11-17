@@ -192,14 +192,16 @@ def edit_update(db: Connection, announcement_id: int, body, manager_id: int | No
 # Needs `FROM payment_claims p`; pass rows through claim_out().
 CLAIM_COLUMNS = (
     "p.id, p.student_id, p.course_id, p.pay_mode, p.qr_slot, p.payer_name, p.method, p.amount, p.paid_on, p.reference, "
-    "p.age, p.referred_by, p.manager_id, p.status, p.created_at, p.screenshot IS NOT NULL AS has_screenshot"
+    "p.age, p.referred_by, p.referral_code, p.manager_id, p.status, p.created_at, p.screenshot IS NOT NULL AS has_screenshot"
 )
 
 
 def claim_out(c: dict) -> dict:
-    """Swaps the internal manager_id for the Referral ID people see (GCM001, or '' when none)."""
+    """Swaps the internal manager_id and the typed code for the Referral ID people see: the linked
+    member's ID (GCM001), else what the student typed, else ''."""
     out = dict(c)
-    out["referral_id"] = manager_code(out.pop("manager_id")) or ""
+    out["referral_id"] = manager_code(out.pop("manager_id")) or out.pop("referral_code", "") or ""
+    out.pop("referral_code", None)
     return out
 
 

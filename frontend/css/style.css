@@ -650,7 +650,10 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}th.
 .input-addon input{flex:1;min-width:0}
 .or-line{display:flex;align-items:center;gap:12px;margin:20px 0 14px;color:var(--faint);font-size:.8rem;font-weight:700;text-transform:uppercase}
 .or-line:before,.or-line:after{content:"";flex:1;height:1px;background:var(--line)}
-.google-btn{display:flex;justify-content:center;min-height:44px;margin-bottom:6px}
+.google-btn{display:flex;justify-content:center;min-height:44px;margin-bottom:6px;
+  /* Google's button is a light-scheme frame; matching it stops browsers painting a white box behind it in dark mode. */
+  color-scheme:light}
+.google-btn iframe{border-radius:99px}
 .google-details{margin-top:14px;padding:16px;border-radius:16px;background:rgba(124,58,237,.06);border:1px solid var(--line)}
 
 /* =========================================================
