@@ -377,6 +377,7 @@ button.stat-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
 .list-row:last-child{border-bottom:0}
 .list-row .grow{flex:1;min-width:0}.list-row b{display:block;font-size:.92rem}.list-row .grow span{font-size:.8rem;color:var(--muted)}
 .table-wrap{overflow:hidden;padding:0}
+.stack-actions{display:inline-flex;flex-direction:column;gap:6px;align-items:stretch}
 table{width:100%;border-collapse:collapse;font-size:.88rem}
 th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:middle}
 th{font-size:.7rem;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);background:var(--tint);white-space:nowrap;font-weight:750}
@@ -644,6 +645,13 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}th.
 .tabs{display:flex;gap:4px;background:rgba(124,58,237,.08);padding:4px;border-radius:13px;margin:20px 0 6px}
 .tab{flex:1;border:0;background:transparent;padding:10px;border-radius:10px;font-weight:750;color:var(--muted);transition:.18s var(--ease)}
 .tab.on{background:var(--surface);color:var(--purple);box-shadow:var(--shadow-sm)}
+.input-addon{display:flex;align-items:stretch;gap:8px}
+.input-addon .addon{display:grid;place-items:center;padding:0 12px;border-radius:12px;background:rgba(124,58,237,.08);color:var(--muted);font-weight:700;font-size:.92rem}
+.input-addon input{flex:1;min-width:0}
+.or-line{display:flex;align-items:center;gap:12px;margin:20px 0 14px;color:var(--faint);font-size:.8rem;font-weight:700;text-transform:uppercase}
+.or-line:before,.or-line:after{content:"";flex:1;height:1px;background:var(--line)}
+.google-btn{display:flex;justify-content:center;min-height:44px;margin-bottom:6px}
+.google-details{margin-top:14px;padding:16px;border-radius:16px;background:rgba(124,58,237,.06);border:1px solid var(--line)}
 
 /* =========================================================
    Responsive
@@ -703,6 +711,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}th.
   table.responsive td.primary-cell:before{display:none}
   table.responsive td.num{text-align:right}
   table.responsive td.actions{justify-content:flex-end;padding-top:8px}
+  .stack-actions{flex-direction:row}
   table.responsive td.hide-sm{display:none}
   .drawer-body{padding:16px}
   .auth-box{padding:22px}

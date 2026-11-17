@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image"
 
+	"gcation/mobile/internal/api"
+
 	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/layout"
@@ -12,6 +14,7 @@ import (
 
 type profileState struct {
 	name, phone, cur, next                        *field
+	mob                                           mobileForm
 	filled                                        bool
 	save, changePw, mail, copyMail, theme, logout widget.Clickable
 	call, copyPhone                               [2]widget.Clickable
@@ -22,7 +25,8 @@ type profileState struct {
 
 func (s *profileState) init() {
 	s.name = newField("Full name", "", false, key.HintAny)
-	s.phone = newField("Phone number", "", false, key.HintTelephone)
+	s.phone = newField("Contact phone", "", false, key.HintTelephone)
+	s.mob.init()
 	s.cur = newField("Current password", "", true, key.HintAny)
 	s.next = newField("New password", "At least 8 characters", true, key.HintAny)
 }
@@ -86,7 +90,9 @@ func (a *App) layoutProfile(gtx C) D {
 							layout.Flexed(1, func(gtx C) D {
 								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 									layout.Rigid(func(gtx C) D { return a.th.label(gtx, me.Student.Name, textOpt{size: 18, weight: font.Bold}) }),
-									layout.Rigid(func(gtx C) D { return a.th.muted(gtx, me.Student.Email, 13.5) }),
+									layout.Rigid(func(gtx C) D {
+										return a.th.muted(gtx, contactText(me.Student.SignIn, me.Student.Email, me.Student.Phone), 13.5)
+									}),
 									layout.Rigid(func(gtx C) D {
 										return a.th.label(gtx, "Member since "+fmtDate(me.Student.CreatedAt), textOpt{size: 12, color: a.th.P.Faint})
 									}),
@@ -129,8 +135,14 @@ func (a *App) layoutProfile(gtx C) D {
 					layout.Rigid(func(gtx C) D { return a.th.field(gtx, s.name) }),
 					layout.Rigid(vspace(12)),
 					layout.Rigid(func(gtx C) D { return a.th.field(gtx, s.phone) }),
-					layout.Rigid(vspace(6)),
-					layout.Rigid(func(gtx C) D { return a.th.muted(gtx, "To change your email, contact the G-CATION team.", 12) }),
+					layout.Rigid(func(gtx C) D {
+						if me.Student.Email == "" {
+							return D{}
+						}
+						return layout.Inset{Top: 6}.Layout(gtx, func(gtx C) D {
+							return a.th.muted(gtx, "Email: "+me.Student.Email+". To change it, contact the G-CATION team.", 12)
+						})
+					}),
 					layout.Rigid(func(gtx C) D { return a.errLine(gtx, s.profileErr) }),
 					layout.Rigid(vspace(14)),
 					layout.Rigid(func(gtx C) D {
@@ -140,24 +152,13 @@ func (a *App) layoutProfile(gtx C) D {
 			})
 		},
 		vspace(14),
+		func(gtx C) D {
+			return a.mobileCard(gtx, &s.mob, api.AsStudent, me.Student.MobileText(), a.reload)
+		},
+		vspace(14),
 		// Password
 		func(gtx C) D {
-			return a.th.card(gtx, 18, func(gtx C) D {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx C) D { return a.cardTitle(gtx, icKey, "Change password") }),
-					layout.Rigid(vspace(4)),
-					layout.Rigid(func(gtx C) D { return a.th.muted(gtx, "You stay logged in here. Other devices are logged out.", 12.5) }),
-					layout.Rigid(vspace(12)),
-					layout.Rigid(func(gtx C) D { return a.th.field(gtx, s.cur) }),
-					layout.Rigid(vspace(12)),
-					layout.Rigid(func(gtx C) D { return a.th.field(gtx, s.next) }),
-					layout.Rigid(func(gtx C) D { return a.errLine(gtx, s.pwErr) }),
-					layout.Rigid(vspace(14)),
-					layout.Rigid(func(gtx C) D {
-						return a.th.button(gtx, &s.changePw, "Update password", btnOpt{full: true, icon: icKey, busy: s.savingPw})
-					}),
-				)
-			})
+			return a.passwordCard(gtx, me.Student.HasPassword, s.cur, s.next, &s.changePw, s.savingPw, s.pwErr)
 		},
 		vspace(14),
 		// Help + settings
@@ -212,6 +213,32 @@ func (a *App) layoutProfile(gtx C) D {
 		},
 	}
 	return a.page(gtx, "profile", items)
+}
+
+// passwordCard changes the password; Google accounts have none yet, so they set one without the current one.
+func (a *App) passwordCard(gtx C, has bool, cur, next *field, save *widget.Clickable, busy bool, errMsg string) D {
+	title, intro, button := "Change password", "You stay logged in here. Other devices are logged out.", "Update password"
+	if !has {
+		title, intro, button = "Set a password", "You sign in with Google. Set a password to also log in with your mobile number.", "Set password"
+	}
+	return a.th.card(gtx, 18, func(gtx C) D {
+		kids := []layout.FlexChild{
+			layout.Rigid(func(gtx C) D { return a.cardTitle(gtx, icKey, title) }),
+			layout.Rigid(vspace(4)),
+			layout.Rigid(func(gtx C) D { return a.th.muted(gtx, intro, 12.5) }),
+		}
+		if has {
+			kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D { return a.th.field(gtx, cur) }))
+		}
+		kids = append(kids,
+			layout.Rigid(vspace(12)),
+			layout.Rigid(func(gtx C) D { return a.th.field(gtx, next) }),
+			layout.Rigid(func(gtx C) D { return a.errLine(gtx, errMsg) }),
+			layout.Rigid(vspace(14)),
+			layout.Rigid(func(gtx C) D { return a.th.button(gtx, save, button, btnOpt{full: true, icon: icKey, busy: busy}) }),
+		)
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
+	})
 }
 
 func themeIcon(dark bool) *widget.Icon {
@@ -366,7 +393,8 @@ func (a *App) changePassword() {
 			}
 			s.cur.Ed.SetText("")
 			s.next.Ed.SetText("")
-			a.toast("Password updated.", false)
+			a.me.Student.HasPassword = true
+			a.toast("Password saved.", false)
 		}
 	})
 }

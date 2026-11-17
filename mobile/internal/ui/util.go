@@ -194,12 +194,12 @@ func upiURL(upiID, payee string, amount float64, note string) string {
 }
 
 // studentRef is how the team finds a student: their Student ID (GCS001) once their first
-// payment is approved, otherwise their email.
+// payment is approved, otherwise their log-in mobile, email or phone.
 func studentRef(s api.Student) string {
 	if s.Code() != "" {
 		return "Student ID " + s.Code()
 	}
-	return s.Email
+	return contactText(s.SignIn, s.Email, s.Phone)
 }
 
 // studentLines is the identity part of messages to the team.
@@ -208,7 +208,11 @@ func studentLines(s api.Student) string {
 	if s.Code() != "" {
 		lines = "Student ID: " + s.Code() + "\n"
 	}
-	return lines + "Name: " + s.Name + "\nEmail: " + s.Email
+	lines += "Name: " + s.Name
+	if s.Email != "" {
+		lines += "\nEmail: " + s.Email
+	}
+	return lines + "\nPhone: " + s.Phone
 }
 
 func greeting() string {

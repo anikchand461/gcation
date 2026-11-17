@@ -51,8 +51,6 @@ type adminState struct {
 	claims   []api.ClaimRow
 	students []api.StudentRow
 	payments []api.Enrollment
-	anns     []api.Announcement
-	audience map[string]int
 	courses  []api.AdminCourse
 	methods  []api.AdminMethod
 	phone    string
@@ -60,17 +58,19 @@ type adminState struct {
 	invite   string        // referral code management members need to register
 	managers []api.Manager // management team
 
-	search  *field
-	filter  int
-	paySeg  int
-	detail  *studentDetail
-	shot    *api.ClaimRow // payment screenshot being viewed
-	compose composer
-	sub     moreScreen
-	more    moreState
-	retry   widget.Clickable
-	refresh widget.Clickable
-	theme   widget.Clickable
+	search     *field
+	filter     int
+	paySearch  *field // Payments tab
+	teamSearch *field // Management screen
+	paySeg     int
+	detail     *studentDetail
+	shot       *api.ClaimRow // payment screenshot being viewed
+	compose    composer
+	sub        moreScreen
+	more       moreState
+	retry      widget.Clickable
+	refresh    widget.Clickable
+	theme      widget.Clickable
 }
 
 func (s *adminState) canGoBack() bool {
@@ -93,8 +93,12 @@ func (s *adminState) back() {
 }
 
 func (a *App) startAdmin() {
-	s := &adminState{search: newField("", "Search name, email, phone or Student ID", false, key.HintAny)}
-	s.compose.init()
+	s := &adminState{
+		search:     newField("", "Search name, email, phone or Student ID", false, key.HintAny),
+		paySearch:  newField("", "Search student, Student ID, phone, course or receipt", false, key.HintAny),
+		teamSearch: newField("", "Search name, email, phone or Management ID", false, key.HintAny),
+	}
+	s.compose.init(api.AdminUpdates)
 	s.more.init()
 	a.admin = s
 	a.screen = scrMain
@@ -115,6 +119,7 @@ func (a *App) adminReload() {
 			students []api.StudentRow
 			payments []api.Enrollment
 			anns     []api.Announcement
+			annCos   []api.UpdateCourse
 			aud      map[string]int
 			courses  []api.AdminCourse
 			methods  []api.AdminMethod
@@ -129,7 +134,7 @@ func (a *App) adminReload() {
 			func() (e error) { claims, e = a.api.Claims(); return },
 			func() (e error) { students, e = a.api.Students(""); return },
 			func() (e error) { payments, e = a.api.Payments(); return },
-			func() (e error) { anns, aud, e = a.api.Announcements(); return },
+			func() (e error) { anns, annCos, aud, e = a.api.PostedUpdates(api.AdminUpdates); return },
 			func() (e error) { courses, e = a.api.AdminCourses(); return },
 			func() (e error) { methods, e = a.api.PaymentMethods(); return },
 			func() (e error) { phone, e = a.api.SupportPhone(); return },
@@ -153,7 +158,8 @@ func (a *App) adminReload() {
 			}
 			s.err, s.loaded = "", true
 			s.ov, s.claims, s.students, s.payments = ov, claims, students, payments
-			s.anns, s.audience, s.courses, s.methods = anns, aud, courses, methods
+			s.compose.anns, s.compose.courses, s.compose.audience = anns, annCos, aud
+			s.courses, s.methods = courses, methods
 			s.phone, s.username = phone, user
 			s.invite, s.managers = invite, managers
 			a.prefetchScreenshots()
@@ -348,7 +354,7 @@ func (a *App) layoutOverview(gtx C) D {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
 		},
 		a.groupLabel("PAYMENTS TO VERIFY"),
-		func(gtx C) D { return a.claimRows(gtx, 5) },
+		func(gtx C) D { return a.claimRows(gtx, s.claims, 5) },
 		a.groupLabel("EXPIRING IN 7 DAYS"),
 		func(gtx C) D {
 			var rows []layout.Widget
@@ -386,7 +392,7 @@ func (a *App) layoutOverview(gtx C) D {
 			return a.group(gtx, rows)
 		},
 		a.groupLabel("RECENT PAYMENTS"),
-		func(gtx C) D { return a.paymentRows(gtx, 5) },
+		func(gtx C) D { return a.paymentRows(gtx, s.payments, 5) },
 	}
 	return a.page(gtx, "a.overview", items)
 }
@@ -411,16 +417,35 @@ func (a *App) qrLabel(slot string) string {
 	return "QR not given"
 }
 
+// paidTo is where the money went: "Cash" for cash payments, else the QR's name.
+func (a *App) paidTo(c api.ClaimRow) string {
+	if c.PayMode == "cash" {
+		return "Cash"
+	}
+	return a.qrLabel(c.QRSlot)
+}
+
+// upiMethod is the app the student paid with ("" for cash, where it would just repeat "Cash").
+func upiMethod(c api.ClaimRow) string {
+	if c.PayMode == "cash" {
+		return ""
+	}
+	return c.Method
+}
+
 // claimRows lists pending payment notes with Verify / Dismiss.
-func (a *App) claimRows(gtx C, limit int) D {
+func (a *App) claimRows(gtx C, claims []api.ClaimRow, limit int) D {
 	s := a.admin
-	if len(s.claims) == 0 {
+	if len(claims) == 0 {
+		if len(s.claims) > 0 {
+			return a.th.muted(gtx, "No payment notes match your search.", 13.5)
+		}
 		return a.group(gtx, []layout.Widget{func(gtx C) D {
 			return a.listRow(gtx, nil, func(gtx C) D { return a.iconTile(gtx, icCheck, 40) }, "All caught up", "No payments waiting to be verified.", nil)
 		}})
 	}
 	var rows []layout.Widget
-	for i, c := range s.claims {
+	for i, c := range claims {
 		if limit > 0 && i == limit {
 			break
 		}
@@ -441,8 +466,8 @@ func (a *App) claimRows(gtx C, limit int) D {
 		if c.Amount != nil {
 			amount = rupees(*c.Amount)
 		}
-		parts := []string{a.qrLabel(c.QRSlot)}
-		for _, p := range []string{c.Method, c.Reference, prefix("ref. ", referralText(c))} {
+		parts := []string{a.paidTo(c)}
+		for _, p := range []string{upiMethod(c), c.Reference, prefix("ref. ", referralText(c))} {
 			if p != "" {
 				parts = append(parts, p)
 			}
@@ -466,16 +491,18 @@ func (a *App) claimRows(gtx C, limit int) D {
 }
 
 // paymentRows lists recorded payments (access given) with a receipt button.
-func (a *App) paymentRows(gtx C, limit int) D {
-	s := a.admin
-	if len(s.payments) == 0 {
+func (a *App) paymentRows(gtx C, payments []api.Enrollment, limit int) D {
+	if len(payments) == 0 {
+		if len(a.admin.payments) > 0 {
+			return a.th.muted(gtx, "No payments match your search.", 13.5)
+		}
 		return a.group(gtx, []layout.Widget{func(gtx C) D {
 			return a.listRow(gtx, nil, func(gtx C) D { return a.iconTile(gtx, icPay, 40) }, "No payments yet", "Payments appear here when you give access.", nil)
 		}})
 	}
 	now := time.Now().Unix()
 	var rows []layout.Widget
-	for i, p := range s.payments {
+	for i, p := range payments {
 		if limit > 0 && i == limit {
 			break
 		}
@@ -495,6 +522,9 @@ func (a *App) paymentRows(gtx C, limit int) D {
 			status = "ended"
 		case p.StartAt > now:
 			status = "starts later"
+		}
+		if p.PayMode == "cash" {
+			status += " · cash"
 		}
 		rows = append(rows, func(gtx C) D {
 			return a.listRow(gtx, open, func(gtx C) D { return a.th.avatar(gtx, p.StudentName, 40) },
@@ -551,7 +581,7 @@ func (a *App) layoutAdminStudents(gtx C) D {
 	var shown []api.StudentRow
 	counts := make([]int, len(studentFilters))
 	for _, st := range s.students {
-		if q != "" && !strings.Contains(strings.ToLower(st.Name+" "+st.Email+" "+st.Phone+" "+st.Code()), q) {
+		if q != "" && !strings.Contains(strings.ToLower(joinDot(st.Name, st.Email, st.Phone, st.MobileText(), st.Code())), q) {
 			continue
 		}
 		for f := range studentFilters {
@@ -599,7 +629,7 @@ func (a *App) layoutAdminStudents(gtx C) D {
 				}
 				rows = append(rows, func(gtx C) D {
 					return a.listRow(gtx, clk, func(gtx C) D { return a.th.avatar(gtx, st.Name, 42) }, st.Name,
-						joinDot(st.Code(), st.Email), func(gtx C) D { return a.studentBadge(gtx, st) })
+						joinDot(st.Code(), contactText(st.SignIn, st.Email, st.Phone)), func(gtx C) D { return a.studentBadge(gtx, st) })
 				})
 			}
 			return a.group(gtx, rows)
@@ -642,7 +672,25 @@ func (a *App) layoutAdminPayments(gtx C) D {
 	for _, p := range s.payments {
 		total += p.AmountPaid
 	}
+	q := strings.ToLower(s.paySearch.Text())
+	has := func(parts ...string) bool {
+		return q == "" || strings.Contains(strings.ToLower(strings.Join(parts, " ")), q)
+	}
+	var claims []api.ClaimRow
+	for _, c := range s.claims {
+		if has(c.StudentName, c.StudentPhone, ptrText(c.StudentCode), c.CourseTitle, c.Reference, c.PayerName, c.ReferralID, c.PayMode) {
+			claims = append(claims, c)
+		}
+	}
+	var payments []api.Enrollment
+	for _, p := range s.payments {
+		if has(p.StudentName, p.StudentEmail, p.StudentPhone, ptrText(p.StudentCode), p.CourseTitle, p.ReceiptNo, p.Note, p.PayMode) {
+			payments = append(payments, p)
+		}
+	}
 	items := []layout.Widget{
+		func(gtx C) D { return a.th.field(gtx, s.paySearch) },
+		vspace(12),
 		func(gtx C) D {
 			return a.chips(gtx, "payseg", segs, func(i int) bool { return i == s.paySeg }, func(i int) *widget.Clickable { return a.clk(fmt.Sprint("pseg", i)) })
 		},
@@ -654,7 +702,7 @@ func (a *App) layoutAdminPayments(gtx C) D {
 				return a.th.muted(gtx, "Match each note with your bank statement, then Verify to give access.", 13.5)
 			},
 			vspace(10),
-			func(gtx C) D { return a.claimRows(gtx, 0) })
+			func(gtx C) D { return a.claimRows(gtx, claims, 0) })
 	} else {
 		items = append(items,
 			func(gtx C) D {
@@ -664,12 +712,20 @@ func (a *App) layoutAdminPayments(gtx C) D {
 				)
 			},
 			vspace(10),
-			func(gtx C) D { return a.paymentRows(gtx, 0) })
+			func(gtx C) D { return a.paymentRows(gtx, payments, 0) })
 	}
 	return a.page(gtx, "a.payments", items)
 }
 
 func pt(x, y int) image.Point { return image.Pt(x, y) }
+
+// ptrText is *p, or "" for nil.
+func ptrText(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
 
 // sortedCourses returns courses ordered by id (stable chip order).
 func sortedCourses(cs []api.AdminCourse) []api.AdminCourse {

@@ -44,11 +44,32 @@ func TestScreenshots(t *testing.T) {
 			{"01b-login-management", func() { a.auth.mgmt = true }},
 			{"02b-register-management", func() { a.auth.register = true }},
 			{"02-register", func() { a.screen, a.auth.register, a.auth.mgmt = scrAuth, true, false }},
+			{"02c-register-filled", func() {
+				a.auth.rName.Ed.SetText("Anik Chand")
+				a.auth.rPhone.Ed.SetText("98765 43210")
+			}},
+			{"02e-google-wait", func() {
+				a.auth.register, a.auth.googleWait = false, true
+				a.auth.list.Position.First, a.auth.list.Position.Offset = 1, 250*pxPerDp
+			}},
+			{"02g-google-details", func() {
+				a.auth.googleWait, a.auth.needDetails, a.auth.googleName = false, true, "Anik Chand"
+				a.auth.list.Position.First, a.auth.list.Position.Offset = 1, 450*pxPerDp
+			}},
+			{"02f-login", func() {
+				a.auth.needDetails = false
+				a.auth.googleWait = false
+				a.auth.list.Position.First, a.auth.list.Position.Offset = 0, 0
+			}},
 			{"03-home", func() { a.screen, a.tab = scrMain, tabHome }},
 			{"03b-home-unpaid", func() { a.me.Student.StudentCode = nil }},
 			{"04-courses", func() { a.tab = tabCourses }},
 			{"05-updates", func() { a.tab = tabUpdates }},
 			{"06-profile", func() { a.tab = tabProfile }},
+			{"06b-profile-mobile", func() {
+				l := a.list("profile")
+				l.Position.First, l.Position.Offset = 8, 0
+			}},
 			{"07-checkout-pay", func() { a.openCheckout(a.me.Courses[1]) }},
 			{"08-checkout-details", func() { a.checkout.step = 2 }},
 			{"08b-checkout-paid-using", func() { a.checkout.method, a.checkout.methodOpen = 1, true }},
@@ -61,7 +82,9 @@ func TestScreenshots(t *testing.T) {
 				l := a.list("checkout2")
 				l.Position.First, l.Position.Offset = 5, 1250*pxPerDp
 			}},
-			{"09-checkout-call", func() { a.checkout.step = 3 }},
+			{"08d-checkout-cash", func() { a.checkout.step, a.checkout.cash = 1, true }},
+			{"08e-checkout-cash-details", func() { a.checkout.step = 2 }},
+			{"09-checkout-call", func() { a.checkout.step, a.checkout.cash = 3, false }},
 			{"10-checkout-status", func() { a.openCheckout(a.me.Courses[2]) }},
 			{"11-splash", func() { a.checkout, a.screen = nil, scrSplash }},
 			{"12-admin-login", func() { a.screen, a.auth.admin, a.auth.register = scrAuth, true, false }},
@@ -84,6 +107,11 @@ func TestScreenshots(t *testing.T) {
 				a.confirm("Give access?", "Anik Chand gets \"Interview Skills Bootcamp\" for 90 days. Amount recorded: ₹1,499.", "Give access", false, func() {})
 			}},
 			{"22-admin-management", func() { a.dialog = nil; a.admin.sub = moreManagement }},
+			{"22b-admin-management-password", func() {
+				a.admin.managers[0].CanPostUpdates = true
+				a.admin.more.pwFor = 1
+				a.admin.more.managerPw.Ed.SetText("x7Kp2mQr9a")
+			}},
 			{"23-admin-account", func() { a.admin.sub = moreAccount; a.admin.more.fill(a.admin) }},
 			{"24-admin-screenshot", func() {
 				a.admin.sub, a.admin.tab = moreNone, aPayments
@@ -97,6 +125,12 @@ func TestScreenshots(t *testing.T) {
 			{"26-mgmt-courses", func() { a.mgmt.tab = mgmtCourses }},
 			{"26b-mgmt-updates", func() { a.mgmt.tab = mgmtUpdates }},
 			{"27-mgmt-profile", func() { a.mgmt.tab = mgmtProfile }},
+			{"28-mgmt-post", func() {
+				a.mgmt.me.Manager.CanPostUpdates = true
+				a.mgmt.compose.courses = []api.UpdateCourse{{ID: 1, Title: "Online Spoken English Batch"}}
+				a.mgmt.compose.audience = map[string]int{"all": 8, "management": 3, "1": 7}
+				a.mgmt.tab = mgmtPost
+			}},
 		}
 		for _, s := range shots {
 			s.setup()
@@ -171,8 +205,9 @@ func testApp(t *testing.T, dark bool) *App {
 }
 
 func testAdmin(a *App) *adminState {
-	s := &adminState{search: newField("", "Search name, email, phone or ID", false, 0), loaded: true}
-	s.compose.init()
+	s := &adminState{search: newField("", "Search name, email, phone or ID", false, 0), loaded: true,
+		paySearch: newField("", "Search student, course or receipt", false, 0), teamSearch: newField("", "Search name or Management ID", false, 0)}
+	s.compose.init(api.AdminUpdates)
 	s.more.init()
 	now := time.Now().Unix()
 	amt := 1499.0
@@ -197,8 +232,9 @@ func testAdmin(a *App) *adminState {
 	s.payments = []api.Enrollment{{ID: 1, StudentID: 1, CourseTitle: "Online Spoken English Batch", StartAt: now - 20*86400, EndAt: now + 345*86400, AmountPaid: 3099, GrantedAt: now - 20*86400, ReceiptNo: "GC-2026-00001", StudentName: "Anik Chand"}}
 	cid := int64(1)
 	title := "Online Spoken English Batch"
-	s.anns = []api.Announcement{{ID: 1, Title: "Live class today, 7:00 PM", Message: "Please join 5 minutes early.", LinkURL: "https://meet.google.com/abc-defg-hij", ToManagement: true, CourseIDs: []int64{cid}, AudienceLabel: "Management · " + title, CreatedAt: now - 600}}
-	s.audience = map[string]int{"all": 8, "management": 3, "1": 7, "2": 1}
+	s.compose.anns = []api.Announcement{{ID: 1, Title: "Live class today, 7:00 PM", Message: "Please join 5 minutes early.", LinkURL: "https://meet.google.com/abc-defg-hij", ToManagement: true, CourseIDs: []int64{cid}, AudienceLabel: "Management · " + title, CreatedAt: now - 600}}
+	s.compose.audience = map[string]int{"all": 8, "management": 3, "1": 7, "2": 1}
+	s.compose.courses = []api.UpdateCourse{{ID: 1, Title: title}, {ID: 2, Title: "Interview Skills Bootcamp"}}
 	s.courses = []api.AdminCourse{
 		{ID: 1, Title: title, Description: "A one-year online learning package.", Features: "Live online classes\nWeekly practice", Price: 3099, DefaultDays: 365, IsActive: true},
 		{ID: 2, Title: "Interview Skills Bootcamp", Price: 1499, DefaultDays: 90, IsActive: false},

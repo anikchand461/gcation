@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -77,9 +78,13 @@ func (a *App) layoutScreenshot(gtx C) D {
 	if c.StudentCode != nil {
 		student += " · " + *c.StudentCode
 	}
+	payer := "Account name"
+	if c.PayMode == "cash" {
+		payer = "Paid by"
+	}
 	rows := [][2]string{
 		{"Student", student}, {"Phone", c.StudentPhone}, {"Course", c.CourseTitle},
-		{"Paid to", a.qrLabel(c.QRSlot)}, {"Paid using", c.Method}, {"Account name", c.PayerName},
+		{"Paid to", a.paidTo(*c)}, {"Paid using", upiMethod(*c)}, {payer, c.PayerName},
 		{"Payment date", c.PaidOn}, {"UTR", c.Reference}, {"Age", age}, {"Referred by", referralText(*c)},
 		{"Sent", fmtDateTime(c.CreatedAt)},
 	}
@@ -123,7 +128,11 @@ func (a *App) layoutScreenshot(gtx C) D {
 		a.groupLabel("PAYMENT SCREENSHOT"),
 		func(gtx C) D {
 			if !c.HasScreenshot {
-				return a.th.muted(gtx, "The student did not attach a screenshot.", 13.5)
+				msg := "The student did not attach a screenshot."
+				if c.PayMode == "cash" {
+					msg = "Cash payment: there is no screenshot or UTR."
+				}
+				return a.th.muted(gtx, msg, 13.5)
 			}
 			op, ok := a.image(c.ScreenshotPath())
 			if !ok {
@@ -192,12 +201,49 @@ func (a *App) managementItems(gtx C) []layout.Widget {
 			return a.emptyState(gtx, icShield, "No management members yet", "Set the referral code in Admin account and share the registration link with your team.", nil, "")
 		})
 	}
+	items = append(items, func(gtx C) D { return a.th.field(gtx, s.teamSearch) }, vspace(12))
+	q := strings.ToLower(s.teamSearch.Text())
+	shown := 0
+	more := &s.more
 	for _, m := range s.managers {
 		m := m
+		if q != "" && !strings.Contains(strings.ToLower(joinDot(m.Name, m.Email, m.Phone, m.MobileText(), m.Code)), q) {
+			continue
+		}
+		shown++
 		toggle := a.clk(fmt.Sprint("mgmt.t", m.ID))
 		call := a.clk(fmt.Sprint("mgmt.c", m.ID))
+		post := a.clk(fmt.Sprint("mgmt.p", m.ID))
+		pw, gen, setPw := a.clk(fmt.Sprint("mgmt.pw", m.ID)), a.clk(fmt.Sprint("mgmt.g", m.ID)), a.clk(fmt.Sprint("mgmt.s", m.ID))
 		if call.Clicked(gtx) && m.Phone != "" {
 			a.open(telURL(m.Phone))
+		}
+		if post.Clicked(gtx) {
+			a.setPosting(m, !m.CanPostUpdates)
+		}
+		if pw.Clicked(gtx) {
+			if more.pwFor == m.ID {
+				more.pwFor = 0
+			} else {
+				more.pwFor = m.ID
+				more.managerPw.Ed.SetText("")
+			}
+		}
+		if gen.Clicked(gtx) {
+			more.managerPw.Ed.SetText(randomPassword())
+		}
+		if setPw.Clicked(gtx) {
+			newPw := more.managerPw.Text()
+			if len(newPw) < 8 {
+				a.toast("Password must be at least 8 characters.", true)
+			} else {
+				a.confirm(fmt.Sprintf("Set a new password for %s?", m.Name), m.Name+" is logged out everywhere and must use the new password.", "Set password", false, func() {
+					a.adminDo(func() error { return a.api.ResetManagerPassword(m.ID, newPw) }, "", func() {
+						more.pwFor = 0
+						a.copyTextNow(newPw, "Password set and copied. Share it with "+m.Name+".")
+					})
+				})
+			}
 		}
 		if toggle.Clicked(gtx) {
 			if m.RevokedAt == nil {
@@ -224,7 +270,7 @@ func (a *App) managementItems(gtx C) []layout.Widget {
 							layout.Flexed(1, func(gtx C) D {
 								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 									layout.Rigid(func(gtx C) D { return a.th.label(gtx, m.Name, textOpt{size: 16, weight: font.Bold, maxLines: 1}) }),
-									layout.Rigid(func(gtx C) D { return a.th.muted(gtx, m.Email, 12.5) }),
+									layout.Rigid(func(gtx C) D { return a.th.muted(gtx, contactText(m.SignIn, m.Email, m.Phone), 12.5) }),
 								)
 							}),
 							layout.Rigid(func(gtx C) D {
@@ -265,7 +311,35 @@ func (a *App) managementItems(gtx C) []layout.Widget {
 						}
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx, kids...)
 					}),
-					layout.Rigid(vspace(8)),
+					layout.Rigid(func(gtx C) D {
+						return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+							layout.Flexed(1, func(gtx C) D { return a.th.muted(gtx, "Can post updates for you", 13) }),
+							layout.Rigid(func(gtx C) D { return a.toggleSwitch(gtx, post, m.CanPostUpdates) }),
+						)
+					}),
+					layout.Rigid(func(gtx C) D {
+						if more.pwFor != m.ID {
+							return D{}
+						}
+						return layout.Inset{Top: 10}.Layout(gtx, func(gtx C) D {
+							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+								layout.Rigid(func(gtx C) D { return a.th.field(gtx, more.managerPw) }),
+								layout.Rigid(vspace(8)),
+								layout.Rigid(func(gtx C) D {
+									return layout.Flex{}.Layout(gtx,
+										layout.Flexed(1, func(gtx C) D {
+											return a.th.button(gtx, gen, "Generate", btnOpt{full: true, small: true, kind: btnSoft, icon: icRefresh})
+										}),
+										layout.Rigid(hspace(8)),
+										layout.Flexed(1, func(gtx C) D {
+											return a.th.button(gtx, setPw, "Set password", btnOpt{full: true, small: true, icon: icTick})
+										}),
+									)
+								}),
+							)
+						})
+					}),
+					layout.Rigid(vspace(10)),
 					layout.Rigid(func(gtx C) D {
 						kids := []layout.FlexChild{}
 						if m.Phone != "" {
@@ -274,6 +348,8 @@ func (a *App) managementItems(gtx C) []layout.Widget {
 							}), layout.Rigid(hspace(8)))
 						}
 						kids = append(kids, layout.Flexed(1, func(gtx C) D {
+							return a.th.button(gtx, pw, "Password", btnOpt{full: true, small: true, kind: btnOutline})
+						}), layout.Rigid(hspace(8)), layout.Flexed(1, func(gtx C) D {
 							if m.RevokedAt != nil {
 								return a.th.button(gtx, toggle, "Restore", btnOpt{full: true, small: true, kind: btnSuccess, icon: icTick})
 							}
@@ -285,7 +361,42 @@ func (a *App) managementItems(gtx C) []layout.Widget {
 			})
 		}, vspace(12))
 	}
+	if shown == 0 {
+		items = append(items, func(gtx C) D { return a.th.muted(gtx, "No members match your search.", 13.5) })
+	}
 	return items
+}
+
+// setPosting turns a member's permission to post updates on or off. The switch moves right away
+// and moves back if the server refuses.
+func (a *App) setPosting(m api.Manager, on bool) {
+	flip := func(v bool) {
+		for i := range a.admin.managers {
+			if a.admin.managers[i].ID == m.ID {
+				a.admin.managers[i].CanPostUpdates = v
+			}
+		}
+	}
+	flip(on)
+	msg := m.Name + " can post updates now."
+	if !on {
+		msg = m.Name + " can no longer post updates."
+	}
+	a.async(func() func() {
+		err := a.api.SetUpdatesAccess(m.ID, on)
+		return func() {
+			if errors.Is(err, api.ErrUnauthorized) {
+				a.signedOut("Admin session ended. Please log in again.")
+				return
+			}
+			if err != nil {
+				flip(!on)
+				a.toast("Could not change posting: "+err.Error(), true)
+				return
+			}
+			a.toast(msg, false)
+		}
+	})
 }
 
 // inviteCodeItems is the "Management referral code" card on the Admin account screen.

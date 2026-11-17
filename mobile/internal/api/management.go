@@ -16,6 +16,9 @@ type Manager struct {
 	Phone     string `json:"phone"`
 	CreatedAt int64  `json:"created_at"`
 	RevokedAt *int64 `json:"revoked_at"`
+	// Set by the admin: the member may post updates until it is turned off.
+	CanPostUpdates bool `json:"can_post_updates"`
+	SignIn
 	// Present in the admin's list:
 	Approved int `json:"approved"`
 	Pending  int `json:"pending"`
@@ -25,27 +28,6 @@ type ManagerMe struct {
 	Manager Manager  `json:"manager"`
 	Courses []Course `json:"courses"`
 	Unread  int      `json:"unread_announcements"`
-}
-
-func (c *Client) ManagerLogin(email, password string) error {
-	var out struct{ Token string }
-	err := c.do(http.MethodPost, "/api/management/login", map[string]string{"email": email, "password": password, "client": "app"}, &out)
-	if err == nil {
-		c.setToken(roleManager, out.Token)
-	}
-	return err
-}
-
-// ManagerRegister needs the referral code the admin gives the team (only once, at registration).
-func (c *Client) ManagerRegister(name, email, phone, password, inviteCode string) error {
-	var out struct{ Token string }
-	err := c.do(http.MethodPost, "/api/management/register", map[string]string{
-		"name": name, "email": email, "phone": phone, "password": password, "invite_code": inviteCode, "client": "app",
-	}, &out)
-	if err == nil {
-		c.setToken(roleManager, out.Token)
-	}
-	return err
 }
 
 func (c *Client) ManagerLogout() {
@@ -96,4 +78,14 @@ func (c *Client) RevokeManager(id int64) error {
 
 func (c *Client) RestoreManager(id int64) error {
 	return c.do(http.MethodPost, fmt.Sprintf("/api/admin/managers/%d/restore", id), nil, nil)
+}
+
+// ResetManagerPassword sets a new password for a member who forgot theirs and logs them out everywhere.
+func (c *Client) ResetManagerPassword(id int64, pw string) error {
+	return c.do(http.MethodPost, fmt.Sprintf("/api/admin/managers/%d/password", id), map[string]string{"new_password": pw}, nil)
+}
+
+// SetUpdatesAccess lets a member post updates (on) or takes it back (off).
+func (c *Client) SetUpdatesAccess(id int64, enabled bool) error {
+	return c.do(http.MethodPut, fmt.Sprintf("/api/admin/managers/%d/updates-access", id), map[string]bool{"enabled": enabled}, nil)
 }

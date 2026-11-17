@@ -16,6 +16,7 @@ from ..access import (
     COURSE_COLUMNS,
     audience_label,
     course_titles,
+    edit_update,
     DAY,
     METHOD_COLUMNS,
     NO_ACCESS,
@@ -23,13 +24,16 @@ from ..access import (
     get_course,
     get_setting,
     give_student_no,
+    insert_update,
     load_access,
+    manager_code,
     manager_out,
     method_out,
     now,
     number_from_code,
     student_code,
     student_out,
+    update_audience,
 )
 from ..db import get_db
 from ..images import decode_image
@@ -47,6 +51,8 @@ from ..schemas import (
     QrSlot,
     SettingsIn,
     StudentEditIn,
+    UpdatesAccessIn,
+    clean_mobile,
 )
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -136,9 +142,9 @@ def students(q: str = "", db: Connection = Depends(get_db)):
     q = q.strip()
     like = f"%{q}%"
     rows = db.execute(
-        "SELECT * FROM students WHERE name ILIKE %s OR email ILIKE %s OR phone ILIKE %s OR student_no = %s "
-        "ORDER BY created_at DESC",
-        (like, like, like, number_from_code("GCS", q) if q else None),
+        "SELECT * FROM students WHERE name ILIKE %s OR email ILIKE %s OR phone ILIKE %s OR mobile ILIKE %s "
+        "OR student_no = %s ORDER BY created_at DESC",
+        (like, like, like, like, number_from_code("GCS", q) if q else None),
     ).fetchall()
     courses = db.execute("SELECT id, title FROM courses ORDER BY id").fetchall()
     access = load_access(db)
@@ -187,12 +193,19 @@ def student_detail(student_id: int, db: Connection = Depends(get_db)):
 
 @router.put("/students/{student_id}", dependencies=[admin])
 def edit_student(student_id: int, body: StudentEditIn, db: Connection = Depends(get_db)):
-    taken = db.execute("SELECT 1 FROM students WHERE email = %s AND id <> %s", (body.email, student_id)).fetchone()
-    if taken:
+    email = body.email or None  # students who registered with a mobile number may have no email
+    if email and db.execute("SELECT 1 FROM students WHERE email = %s AND id <> %s", (email, student_id)).fetchone():
         raise HTTPException(409, "Another student already uses this email.")
+    # A valid mobile number also becomes the one the student logs in with.
+    try:
+        mobile = clean_mobile(body.phone)
+    except ValueError:
+        mobile = None
+    if mobile and db.execute("SELECT 1 FROM students WHERE mobile = %s AND id <> %s", (mobile, student_id)).fetchone():
+        raise HTTPException(409, "Another student already logs in with this mobile number.")
     cur = db.execute(
-        "UPDATE students SET name = %s, email = %s, phone = %s WHERE id = %s",
-        (body.name, body.email, body.phone, student_id),
+        "UPDATE students SET name = %s, email = %s, phone = %s, mobile = COALESCE(%s, mobile) WHERE id = %s",
+        (body.name, email, body.phone, mobile, student_id),
     )
     if cur.rowcount == 0:
         raise HTTPException(404, "Student not found.")
@@ -263,9 +276,10 @@ def revoke(enrollment_id: int, db: Connection = Depends(get_db)):
 @router.get("/payments", dependencies=[admin])
 def payments(db: Connection = Depends(get_db)):
     rows = db.execute(
-        "SELECT e.*, s.name AS student_name, s.email AS student_email, s.student_no, c.title AS course_title "
+        "SELECT e.*, s.name AS student_name, s.email AS student_email, s.phone AS student_phone, s.student_no, "
+        "c.title AS course_title, COALESCE(p.pay_mode, '') AS pay_mode "
         "FROM enrollments e JOIN students s ON s.id = e.student_id JOIN courses c ON c.id = e.course_id "
-        "ORDER BY e.granted_at DESC"
+        "LEFT JOIN payment_claims p ON p.id = e.claim_id ORDER BY e.granted_at DESC"
     ).fetchall()
     for r in rows:
         r["receipt_no"] = receipt_no(r)
@@ -346,6 +360,28 @@ def revoke_manager(manager_id: int, db: Connection = Depends(get_db)):
     return {"ok": True}
 
 
+@router.post("/managers/{manager_id}/password", dependencies=[admin])
+def reset_manager_password(manager_id: int, body: PasswordResetIn, db: Connection = Depends(get_db)):
+    """For members who forgot their password: admin sets a new one and logs them out everywhere."""
+    with db.transaction():
+        cur = db.execute(
+            "UPDATE managers SET password_hash = %s WHERE id = %s", (auth.hash_password(body.new_password), manager_id)
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Member not found.")
+        db.execute("DELETE FROM sessions WHERE manager_id = %s", (manager_id,))
+    return {"ok": True}
+
+
+@router.put("/managers/{manager_id}/updates-access", dependencies=[admin])
+def set_updates_access(manager_id: int, body: UpdatesAccessIn, db: Connection = Depends(get_db)):
+    """Lets a member post updates until the admin turns it off again. Updates they posted stay."""
+    cur = db.execute("UPDATE managers SET can_post_updates = %s WHERE id = %s", (body.enabled, manager_id))
+    if cur.rowcount == 0:
+        raise HTTPException(404, "Member not found.")
+    return {"ok": True, "can_post_updates": body.enabled}
+
+
 @router.post("/managers/{manager_id}/restore", dependencies=[admin])
 def restore_manager(manager_id: int, db: Connection = Depends(get_db)):
     if db.execute("UPDATE managers SET revoked_at = NULL WHERE id = %s", (manager_id,)).rowcount == 0:
@@ -405,62 +441,34 @@ def remove_payment_qr(slot: QrSlot, db: Connection = Depends(get_db)):
 
 # ---------- Announcements ----------
 
-def _audience(db: Connection) -> dict:
-    """How many people each update target reaches: students with active access ("all" and per
-    course id) and active management members ("management")."""
-    access = load_access(db)
-    per_course: dict[int, set[int]] = {}
-    for (sid, cid), a in access.items():
-        if a["status"] == "active":
-            per_course.setdefault(cid, set()).add(sid)
-    everyone = set().union(*per_course.values()) if per_course else set()
-    team = db.execute("SELECT COUNT(*) AS n FROM managers WHERE revoked_at IS NULL").fetchone()["n"]
-    return {"all": len(everyone), "management": team, **{str(cid): len(s) for cid, s in per_course.items()}}
-
-
 @router.get("/announcements", dependencies=[admin])
 def announcements(db: Connection = Depends(get_db)):
     titles = course_titles(db)
-    items = db.execute(f"SELECT {ANNOUNCEMENT_COLUMNS} FROM announcements a ORDER BY a.created_at DESC").fetchall()
+    items = db.execute(
+        f"SELECT {ANNOUNCEMENT_COLUMNS}, a.manager_id, mg.name AS manager_name FROM announcements a "
+        "LEFT JOIN managers mg ON mg.id = a.manager_id ORDER BY a.created_at DESC"
+    ).fetchall()
     for a in items:
+        # Who posted it: "" for the admin, e.g. "Riya Sen (GCM002)" for a management member.
+        manager_id, name = a.pop("manager_id"), a.pop("manager_name")
+        a["sent_by"] = f"{name} ({manager_code(manager_id)})" if manager_id else ""
         a["audience_label"] = audience_label(a, titles)
         # For older apps, which show one course (or none = every paid student).
         single = not a["to_all_students"] and len(a["course_ids"]) == 1
         a["course_id"] = a["course_ids"][0] if single else None
         a["course_title"] = titles.get(a["course_id"]) if single else None
-    return {"items": items, "audience": _audience(db)}
-
-
-def _check_courses(db: Connection, course_ids: list[int]) -> None:
-    for cid in course_ids:
-        get_course(db, cid)
+    courses = db.execute("SELECT id, title FROM courses ORDER BY id").fetchall()
+    return {"items": items, "courses": courses, "audience": update_audience(db)}
 
 
 @router.post("/announcements", dependencies=[admin])
 def create_announcement(body: AnnouncementIn, db: Connection = Depends(get_db)):
-    _check_courses(db, body.course_ids)
-    t = now()
-    row = db.execute(
-        "INSERT INTO announcements (title, message, link_url, link_label, to_management, to_all_students, course_ids, "
-        "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-        (body.title, body.message, body.link_url, body.link_label, body.to_management, body.to_all_students,
-         body.course_ids, t, t),
-    ).fetchone()
-    return {"ok": True, "id": row["id"]}
+    return {"ok": True, "id": insert_update(db, body)}
 
 
 @router.put("/announcements/{announcement_id}", dependencies=[admin])
 def update_announcement(announcement_id: int, body: AnnouncementIn, db: Connection = Depends(get_db)):
-    _check_courses(db, body.course_ids)
-    # course_id is cleared: the audience now lives in to_management / to_all_students / course_ids.
-    cur = db.execute(
-        "UPDATE announcements SET title = %s, message = %s, link_url = %s, link_label = %s, to_management = %s, "
-        "to_all_students = %s, course_ids = %s, course_id = NULL, updated_at = %s WHERE id = %s",
-        (body.title, body.message, body.link_url, body.link_label, body.to_management, body.to_all_students,
-         body.course_ids, now(), announcement_id),
-    )
-    if cur.rowcount == 0:
-        raise HTTPException(404, "Announcement not found.")
+    edit_update(db, announcement_id, body)
     return {"ok": True}
 
 
@@ -481,10 +489,10 @@ def courses(db: Connection = Depends(get_db)):
 @router.post("/courses", dependencies=[admin])
 def create_course(body: CourseIn, db: Connection = Depends(get_db)):
     row = db.execute(
-        "INSERT INTO courses (title, description, features, price, default_days, classroom_link, is_active) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        "INSERT INTO courses (title, description, features, price, default_days, classroom_link, is_active, "
+        "referral_required) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
         (body.title.strip(), body.description.strip(), body.features, body.price, body.default_days,
-         body.classroom_link, body.is_active),
+         body.classroom_link, body.is_active, bool(body.referral_required)),
     ).fetchone()
     return {"ok": True, "id": row["id"]}
 
@@ -494,9 +502,9 @@ def update_course(course_id: int, body: CourseIn, db: Connection = Depends(get_d
     get_course(db, course_id)
     db.execute(
         "UPDATE courses SET title = %s, description = %s, features = %s, price = %s, default_days = %s, "
-        "classroom_link = %s, is_active = %s WHERE id = %s",
+        "classroom_link = %s, is_active = %s, referral_required = COALESCE(%s, referral_required) WHERE id = %s",
         (body.title.strip(), body.description.strip(), body.features, body.price, body.default_days,
-         body.classroom_link, body.is_active, course_id),
+         body.classroom_link, body.is_active, body.referral_required, course_id),
     )
     return {"ok": True}
 

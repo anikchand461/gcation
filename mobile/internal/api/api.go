@@ -177,26 +177,6 @@ func errorText(data []byte, status int) string {
 
 // ---------- Auth ----------
 
-func (c *Client) Login(email, password string) error {
-	var out struct{ Token string }
-	err := c.do(http.MethodPost, "/api/login", map[string]string{"email": email, "password": password, "client": "app"}, &out)
-	if err == nil {
-		c.setToken(roleStudent, out.Token)
-	}
-	return err
-}
-
-func (c *Client) Register(name, email, phone, password string) error {
-	var out struct{ Token string }
-	err := c.do(http.MethodPost, "/api/register", map[string]string{
-		"name": name, "email": email, "phone": phone, "password": password, "client": "app",
-	}, &out)
-	if err == nil {
-		c.setToken(roleStudent, out.Token)
-	}
-	return err
-}
-
 func (c *Client) Logout() {
 	_ = c.do(http.MethodPost, "/api/logout", nil, nil)
 	c.setToken(roleStudent, "")
@@ -279,10 +259,11 @@ type Me struct {
 type Student struct {
 	ID          int64   `json:"id"` // internal account number, not shown to people
 	Name        string  `json:"name"`
-	Email       string  `json:"email"`
+	Email       string  `json:"email"` // "" for accounts registered by mobile number
 	Phone       string  `json:"phone"`
 	CreatedAt   int64   `json:"created_at"`
 	StudentCode *string `json:"student_code"` // Student ID, e.g. GCS001; nil until the first payment is approved
+	SignIn
 }
 
 // Code is the Student ID (e.g. GCS001), or "" when the student has not paid yet.
@@ -300,6 +281,7 @@ type Course struct {
 	Features           []string `json:"features"`
 	Price              float64  `json:"price"`
 	DefaultDays        int      `json:"default_days"`
+	ReferralRequired   bool     `json:"referral_required"` // "Referred by" and Referral ID must be given
 	HasThumbnail       bool     `json:"has_thumbnail"`
 	ThumbnailUpdatedAt int64    `json:"thumbnail_updated_at"`
 	Access             Access   `json:"access"`
@@ -324,6 +306,7 @@ type Access struct {
 }
 
 type Claim struct {
+	PayMode       string   `json:"pay_mode"` // "upi" or "cash"
 	QRSlot        string   `json:"qr_slot"`
 	PayerName     string   `json:"payer_name"`
 	Method        string   `json:"method"`
@@ -339,6 +322,7 @@ type Claim struct {
 
 type ClaimIn struct {
 	CourseID   int64    `json:"course_id"`
+	PayMode    string   `json:"pay_mode"` // "upi" or "cash" (cash has no QR, UTR or screenshot)
 	QRSlot     string   `json:"qr_slot"`
 	PayerName  string   `json:"payer_name"`
 	Method     string   `json:"method"`

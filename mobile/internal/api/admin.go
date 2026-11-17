@@ -71,8 +71,11 @@ type Enrollment struct {
 	RevokedAt   *int64  `json:"revoked_at"`
 	ReceiptNo   string  `json:"receipt_no"`
 	// Present in the payments list:
-	StudentName  string `json:"student_name"`
-	StudentEmail string `json:"student_email"`
+	StudentName  string  `json:"student_name"`
+	StudentEmail string  `json:"student_email"`
+	StudentPhone string  `json:"student_phone"`
+	StudentCode  *string `json:"student_code"`
+	PayMode      string  `json:"pay_mode"` // "upi", "cash", or "" when not matched to a payment note
 }
 
 type ClaimRow struct {
@@ -80,6 +83,7 @@ type ClaimRow struct {
 	StudentID     int64    `json:"student_id"`
 	CourseID      int64    `json:"course_id"`
 	CourseTitle   string   `json:"course_title"`
+	PayMode       string   `json:"pay_mode"` // "upi" or "cash"
 	QRSlot        string   `json:"qr_slot"`
 	PayerName     string   `json:"payer_name"`
 	Method        string   `json:"method"`
@@ -122,6 +126,7 @@ type Announcement struct {
 	ToAllStudents bool    `json:"to_all_students"`
 	CourseIDs     []int64 `json:"course_ids"`
 	AudienceLabel string  `json:"audience_label"` // e.g. "Management · All paid students"
+	SentBy        string  `json:"sent_by"`        // "" for the admin, e.g. "Riya Sen (GCM002)" for a management member
 	CreatedAt     int64   `json:"created_at"`
 	UpdatedAt     int64   `json:"updated_at"`
 }
@@ -139,30 +144,32 @@ type AnnouncementIn struct {
 }
 
 type AdminCourse struct {
-	ID            int64   `json:"id"`
-	Title         string  `json:"title"`
-	Description   string  `json:"description"`
-	Features      string  `json:"features"` // one per line
-	Price         float64 `json:"price"`
-	DefaultDays   int     `json:"default_days"`
-	ClassroomLink string  `json:"classroom_link"`
-	IsActive      bool    `json:"is_active"`
-	HasThumbnail  bool    `json:"has_thumbnail"`
-	ThumbnailAt   int64   `json:"thumbnail_updated_at"`
+	ID               int64   `json:"id"`
+	Title            string  `json:"title"`
+	Description      string  `json:"description"`
+	Features         string  `json:"features"` // one per line
+	Price            float64 `json:"price"`
+	DefaultDays      int     `json:"default_days"`
+	ClassroomLink    string  `json:"classroom_link"`
+	IsActive         bool    `json:"is_active"`
+	ReferralRequired bool    `json:"referral_required"`
+	HasThumbnail     bool    `json:"has_thumbnail"`
+	ThumbnailAt      int64   `json:"thumbnail_updated_at"`
 }
 
 type CourseIn struct {
-	Title         string  `json:"title"`
-	Description   string  `json:"description"`
-	Features      string  `json:"features"`
-	Price         float64 `json:"price"`
-	DefaultDays   int     `json:"default_days"`
-	ClassroomLink string  `json:"classroom_link"`
-	IsActive      bool    `json:"is_active"`
+	Title            string  `json:"title"`
+	Description      string  `json:"description"`
+	Features         string  `json:"features"`
+	Price            float64 `json:"price"`
+	DefaultDays      int     `json:"default_days"`
+	ClassroomLink    string  `json:"classroom_link"`
+	IsActive         bool    `json:"is_active"`
+	ReferralRequired bool    `json:"referral_required"`
 }
 
 func (a AdminCourse) In() CourseIn {
-	return CourseIn{a.Title, a.Description, a.Features, a.Price, a.DefaultDays, a.ClassroomLink, a.IsActive}
+	return CourseIn{a.Title, a.Description, a.Features, a.Price, a.DefaultDays, a.ClassroomLink, a.IsActive, a.ReferralRequired}
 }
 
 type AdminMethod struct {
@@ -226,24 +233,39 @@ func (c *Client) Payments() ([]Enrollment, error) {
 	return out, c.do(http.MethodGet, "/api/admin/payments", nil, &out)
 }
 
-func (c *Client) Announcements() ([]Announcement, map[string]int, error) {
+// Where updates are posted: the admin's updates, or a management member's own (while the admin allows it).
+const (
+	AdminUpdates   = "/api/admin/announcements"
+	ManagerUpdates = "/api/management/updates"
+)
+
+// UpdateCourse is a course an update can be sent to.
+type UpdateCourse struct {
+	ID    int64  `json:"id"`
+	Title string `json:"title"`
+}
+
+// PostedUpdates lists the updates at base (AdminUpdates or ManagerUpdates), the courses they can
+// go to, and how many people each audience reaches.
+func (c *Client) PostedUpdates(base string) ([]Announcement, []UpdateCourse, map[string]int, error) {
 	var out struct {
 		Items    []Announcement `json:"items"`
+		Courses  []UpdateCourse `json:"courses"`
 		Audience map[string]int `json:"audience"`
 	}
-	err := c.do(http.MethodGet, "/api/admin/announcements", nil, &out)
-	return out.Items, out.Audience, err
+	err := c.do(http.MethodGet, base, nil, &out)
+	return out.Items, out.Courses, out.Audience, err
 }
 
-func (c *Client) SaveAnnouncement(id int64, in AnnouncementIn) error {
+func (c *Client) SaveUpdate(base string, id int64, in AnnouncementIn) error {
 	if id == 0 {
-		return c.do(http.MethodPost, "/api/admin/announcements", in, nil)
+		return c.do(http.MethodPost, base, in, nil)
 	}
-	return c.do(http.MethodPut, fmt.Sprintf("/api/admin/announcements/%d", id), in, nil)
+	return c.do(http.MethodPut, fmt.Sprintf("%s/%d", base, id), in, nil)
 }
 
-func (c *Client) DeleteAnnouncement(id int64) error {
-	return c.do(http.MethodDelete, fmt.Sprintf("/api/admin/announcements/%d", id), nil, nil)
+func (c *Client) DeleteUpdate(base string, id int64) error {
+	return c.do(http.MethodDelete, fmt.Sprintf("%s/%d", base, id), nil, nil)
 }
 
 func (c *Client) AdminCourses() ([]AdminCourse, error) {

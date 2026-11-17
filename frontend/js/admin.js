@@ -9,8 +9,6 @@ let studentFilter = 'all';
 let studentQuery = '';
 let payments = [];
 let courses = [];
-let audience = {};
-let editingAnn = null;
 let current = null; // student shown in the drawer
 
 const nowTs = () => Math.floor(Date.now() / 1000);
@@ -87,6 +85,11 @@ function qrLabel(slot) {
   return slot === 'primary' ? 'Primary QR' : slot === 'secondary' ? 'Secondary QR' : 'QR not specified';
 }
 
+// Where the money went: "Cash" for cash payments, else the QR.
+function paidToLabel(c) {
+  return c.pay_mode === 'cash' ? 'Cash' : qrLabel(c.qr_slot);
+}
+
 // ---------- Overview ----------
 
 async function viewOverview() {
@@ -123,7 +126,7 @@ async function viewOverview() {
         ${claims.length ? claims.slice(0, 5).map(c => `
           <div class="list-row"><span class="avatar-sm">${esc(initials(c.student_name))}</span>
             <div class="grow"><b>${esc(c.student_name)} · ${c.amount != null ? rupees(c.amount) : '?'}</b>
-              <span>${esc(qrLabel(c.qr_slot))}${c.method ? ' · ' + esc(c.method) : ''} · ${timeAgo(c.created_at)}</span></div>
+              <span>${esc(paidToLabel(c))}${c.method && c.pay_mode !== 'cash' ? ' · ' + esc(c.method) : ''} · ${timeAgo(c.created_at)}</span></div>
             <button class="btn success sm" data-verify="${c.student_id}" data-claim="${c.id}">${icon('check')} Verify</button></div>`).join('')
           : `<div class="empty-cell">${icon('checkCircle')}<div>All caught up. Nothing to verify.</div></div>`}
       </div>
@@ -182,7 +185,7 @@ async function viewStudents() {
   if (sub && FILTERS.some(([f]) => f === sub)) studentFilter = sub;
   setView(`
     ${head('People', 'Students', 'Everyone who registered. Click a student to verify payment or manage access.')}
-    <div class="toolbar"><div class="search">${icon('search')}<input id="search" type="search" placeholder="Search name, email, phone or Student ID" aria-label="Search students" value="${esc(studentQuery)}"></div></div>
+    <div class="toolbar"><div class="search">${icon('search')}<input id="search" type="search" placeholder="Search name, mobile, email or Student ID" aria-label="Search students" value="${esc(studentQuery)}"></div></div>
     <div class="filters" id="filters"></div>
     <div class="card table-wrap"><table class="responsive">
       <thead><tr><th>Student</th><th>Phone</th><th>Status</th><th>Access until</th><th>Joined</th><th></th></tr></thead>
@@ -220,7 +223,7 @@ function renderStudents() {
     const until = s.access.filter(a => a.until && a.status !== 'expired').map(a => a.until);
     const ended = s.access.map(a => a.until).filter(Boolean);
     return `<tr class="click" data-id="${s.id}">
-      <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(s.name))}</span><div style="min-width:0"><b>${esc(s.name)}</b><span>${s.student_code ? esc(s.student_code) + ' · ' : ''}${esc(s.email)}</span></div></div></td>
+      <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(s.name))}</span><div style="min-width:0"><b>${esc(s.name)}</b><span>${s.student_code ? esc(s.student_code) + ' · ' : ''}${esc(accountContact(s))}</span></div></div></td>
       <td data-label="Phone">${s.phone ? `<a href="${esc(telHref(s.phone))}" class="strong" data-stop>${esc(s.phone)}</a>` : '<span class="faint">—</span>'}</td>
       <td data-label="Status">${statusBadge(s)}</td>
       <td data-label="Access until">${until.length ? fmtDate(Math.max(...until)) : ended.length ? `<span class="muted">ended ${fmtDate(Math.max(...ended))}</span>` : '<span class="faint">—</span>'}</td>
@@ -268,11 +271,11 @@ function renderDrawer() {
     <span class="avatar-sm" style="width:50px;height:50px;font-size:1rem;border-radius:15px">${esc(initials(s.name))}</span>
     <div style="flex:1;min-width:0">
       <h2 id="drawerName">${esc(s.name)}</h2>
-      <div class="muted small">${studentIdText(s.student_code)} · ${esc(s.email)}</div>
+      <div class="muted small">${[studentIdText(s.student_code), s.mobile && 'logs in with +91 ' + esc(s.mobile), esc(s.email), s.google && 'Google'].filter(Boolean).join(' · ')}</div>
       <div class="contact-actions">
         ${s.phone ? `<a class="btn outline sm" href="${esc(telHref(s.phone))}">${icon('phone')} Call</a>
           <a class="btn outline sm" href="${esc(waHref(s.phone, `Hi ${s.name.split(' ')[0]}, this is G-CATION.`))}" target="_blank" rel="noopener">${icon('message')} WhatsApp</a>` : ''}
-        <a class="btn outline sm" href="mailto:${esc(s.email)}">${icon('mail')} Email</a>
+        ${s.email ? `<a class="btn outline sm" href="mailto:${esc(s.email)}">${icon('mail')} Email</a>` : ''}
       </div>
     </div>
     <button class="icon-btn" aria-label="Close" id="drawerClose">${icon('x')}</button>`;
@@ -289,8 +292,8 @@ function renderDrawer() {
 
     ${pendingClaims.length ? `<h3>Payment notes from student</h3>${pendingClaims.map(c => `
       <div class="notice warn" style="margin-bottom:8px">${icon('hourglass')}<div>
-        <b>${c.amount != null ? rupees(c.amount) : 'Amount not given'}</b> to ${esc(qrLabel(c.qr_slot))}
-        ${c.method ? ' via ' + esc(c.method) : ''}${c.payer_name ? ' · payer <b>' + esc(c.payer_name) + '</b>' : ''}
+        <b>${c.amount != null ? rupees(c.amount) : 'Amount not given'}</b>${c.pay_mode === 'cash' ? ' paid in <b>cash</b>' : ' to ' + esc(qrLabel(c.qr_slot))}
+        ${c.method && c.pay_mode !== 'cash' ? ' via ' + esc(c.method) : ''}${c.payer_name ? ' · payer <b>' + esc(c.payer_name) + '</b>' : ''}
         ${c.paid_on ? ' · ' + esc(c.paid_on) : ''}${c.reference ? ' · UTR <span class="mono">' + esc(c.reference) + '</span>' : ''}
         ${c.age ? ' · age ' + c.age : ''}${referralText(c) ? ' · referred by <b>' + esc(referralText(c)) + '</b>' : ''}
         <div class="tiny" style="margin-top:2px">${esc(c.course_title)} · sent ${fmtDateTime(c.created_at)}</div>
@@ -340,7 +343,7 @@ function renderDrawer() {
       <form id="editForm" novalidate>
         <div class="field"><label for="eName">Full name</label><input id="eName" name="name" maxlength="80" value="${esc(s.name)}"></div>
         <div class="row2">
-          <div class="field"><label for="eEmail">Email</label><input id="eEmail" name="email" type="email" maxlength="120" value="${esc(s.email)}"></div>
+          <div class="field"><label for="eEmail">Email <span class="faint">(optional)</span></label><input id="eEmail" name="email" type="email" maxlength="120" value="${esc(s.email)}"></div>
           <div class="field"><label for="ePhone">Phone</label><input id="ePhone" name="phone" maxlength="20" value="${esc(s.phone)}"></div>
         </div>
         <div class="error"></div>
@@ -406,7 +409,7 @@ function wireGrantForm(pendingClaims) {
       form.course_id.value = claim.course_id;
       fillFromCourse();
       if (claim.amount != null) form.amount.value = Number(claim.amount);
-      form.note.value = [qrLabel(claim.qr_slot), claim.method, claim.payer_name && 'paid by ' + claim.payer_name,
+      form.note.value = [paidToLabel(claim), claim.pay_mode !== 'cash' && claim.method, claim.payer_name && 'paid by ' + claim.payer_name,
         claim.reference && 'UTR ' + claim.reference, claim.paid_on && 'on ' + claim.paid_on,
         claim.referral_id && 'referral ' + claim.referral_id].filter(Boolean).join(', ');
     });
@@ -435,11 +438,7 @@ function wireAccountForms() {
   });
 
   const rf = document.getElementById('resetForm');
-  document.getElementById('genPw').addEventListener('click', () => {
-    const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    const bytes = crypto.getRandomValues(new Uint32Array(10));
-    rf.new_password.value = Array.from(bytes, b => chars[b % chars.length]).join('');
-  });
+  document.getElementById('genPw').addEventListener('click', () => { rf.new_password.value = randomPassword(); });
   rf.addEventListener('submit', async e => {
     e.preventDefault();
     const err = rf.querySelector('.error');
@@ -497,7 +496,8 @@ async function revoke(enrollmentId) {
 // One payment note: who paid, every detail they sent, and Screenshot / Accept / Reject.
 function noteCard(c) {
   const details = [
-    ['Paid to', c.qr_slot ? esc(qrLabel(c.qr_slot)) : ''], ['Paid using', esc(c.method)], ['Account name', esc(c.payer_name)],
+    ['Paid to', c.pay_mode === 'cash' ? '<b>Cash</b>' : c.qr_slot ? esc(qrLabel(c.qr_slot)) : ''], ['Paid using', c.pay_mode === 'cash' ? '' : esc(c.method)],
+    [c.pay_mode === 'cash' ? 'Paid by' : 'Account name', esc(c.payer_name)],
     ['Payment date', esc(c.paid_on)], ['UTR / transaction ID', c.reference ? `<span class="mono">${esc(c.reference)}</span>` : ''],
     ['Age', c.age ? String(c.age) : ''], ['Referred by', esc(referralText(c))],
   ].filter(([, v]) => v);
@@ -539,11 +539,12 @@ async function viewNotes() {
 
 // ---------- Payments ----------
 
+let paymentQuery = '';
+
 async function viewPayments() {
   setView(head('Money', 'Payments', 'Every access you have given, with the amount received.') + skeleton(300));
   const [list, o] = await guarded(() => Promise.all([api('/api/admin/payments'), api('/api/admin/overview')]));
   payments = list;
-  const t = nowTs();
   setView(`
     ${head('Money', 'Payments', 'Every access you have given, with the amount received.',
       `<button class="btn outline sm" id="csvBtn">${icon('download')} Download CSV</button>`)}
@@ -552,31 +553,53 @@ async function viewPayments() {
       <div class="stat-tile"><span class="stat-ico">${icon('rupee')}</span><span><small>Total collected</small><b>${rupees(o.total_collected)}</b></span></div>
       <div class="stat-tile"><span class="stat-ico g">${icon('list')}</span><span><small>Records</small><b>${list.length}</b></span></div>
     </div>
-    ${list.length ? `<div class="card table-wrap"><table class="responsive">
+    ${list.length ? `<div class="toolbar"><div class="search">${icon('search')}<input id="paySearch" type="search" placeholder="Search student, Student ID, phone, course or receipt no." aria-label="Search payments" value="${esc(paymentQuery)}"></div></div>
+      <div class="card table-wrap"><table class="responsive">
       <thead><tr><th>Student</th><th>Course</th><th class="num">Amount</th><th>Access period</th><th>Notes</th><th>Status</th><th>Receipt</th></tr></thead>
-      <tbody>${list.map(p => {
-        const status = p.revoked_at ? badge('expired', 'Revoked') : p.end_at <= t ? badge('none', 'Ended') : p.start_at > t ? badge('scheduled') : badge('active');
-        return `<tr class="click" data-id="${p.student_id}">
-          <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(p.student_name))}</span><div style="min-width:0"><b>${esc(p.student_name)}</b><span>${fmtDate(p.granted_at)} · ${esc(p.student_email)}</span></div></div></td>
-          <td data-label="Course">${esc(p.course_title)}</td><td data-label="Amount" class="num strong">${rupees(p.amount_paid)}</td>
-          <td data-label="Period" class="small">${fmtDate(p.start_at)} → ${fmtDate(p.end_at)}</td>
-          <td data-label="Notes" class="small hide-sm">${esc(p.note) || '—'}</td><td data-label="Status">${status}</td>
-          <td class="actions">${adminReceiptButton(p)}</td>
-        </tr>`;
-      }).join('')}</tbody></table></div>`
+      <tbody id="payRows"></tbody></table></div>`
       : emptyState('wallet', 'No payments yet', 'When you give a student access, the payment is recorded here.')}
   `);
   document.getElementById('csvBtn').addEventListener('click', downloadCsv);
-  document.querySelectorAll('#view tr.click').forEach(tr => tr.addEventListener('click', () => openStudent(Number(tr.dataset.id))));
-  wireAdminReceipts(document.getElementById('view'));
+  const search = document.getElementById('paySearch');
+  if (search) search.addEventListener('input', () => { paymentQuery = search.value; renderPayments(); });
+  renderPayments();
+}
+
+function matchesPayment(p, q) {
+  q = q.trim().toLowerCase();
+  return !q || [p.student_name, p.student_email, p.student_phone, p.student_code, p.course_title, p.receipt_no, p.note,
+    p.pay_mode === 'cash' ? 'cash' : ''].some(v => (v || '').toLowerCase().includes(q));
+}
+
+function renderPayments() {
+  const body = document.getElementById('payRows');
+  if (!body) return;
+  const t = nowTs();
+  const rows = payments.filter(p => matchesPayment(p, paymentQuery));
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="7" class="empty-cell">${icon('wallet')}<div>No payments match your search.</div></td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map(p => {
+    const status = p.revoked_at ? badge('expired', 'Revoked') : p.end_at <= t ? badge('none', 'Ended') : p.start_at > t ? badge('scheduled') : badge('active');
+    return `<tr class="click" data-id="${p.student_id}">
+      <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(p.student_name))}</span><div style="min-width:0"><b>${esc(p.student_name)}</b><span>${fmtDate(p.granted_at)} · ${p.student_code ? esc(p.student_code) + ' · ' : ''}${esc(p.student_email)}</span></div></div></td>
+      <td data-label="Course">${esc(p.course_title)}</td><td data-label="Amount" class="num strong">${rupees(p.amount_paid)}${p.pay_mode === 'cash' ? '<div class="tiny muted">Cash</div>' : ''}</td>
+      <td data-label="Period" class="small">${fmtDate(p.start_at)} → ${fmtDate(p.end_at)}</td>
+      <td data-label="Notes" class="small hide-sm">${esc(p.note) || '—'}</td><td data-label="Status">${status}</td>
+      <td class="actions">${adminReceiptButton(p)}</td>
+    </tr>`;
+  }).join('');
+  body.querySelectorAll('tr.click').forEach(tr => tr.addEventListener('click', () => openStudent(Number(tr.dataset.id))));
+  wireAdminReceipts(body);
 }
 
 function downloadCsv() {
   const iso = ts => new Date(ts * 1000).toISOString().slice(0, 10);
   const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [['Receipt no', 'Given on', 'Student ID', 'Student', 'Email', 'Course', 'Amount', 'Start', 'End', 'Notes', 'Revoked on']]
+  const lines = [['Receipt no', 'Given on', 'Student ID', 'Student', 'Email', 'Course', 'Amount', 'Paid by', 'Start', 'End', 'Notes', 'Revoked on']]
     .concat(payments.map(p => [p.receipt_no, iso(p.granted_at), p.student_code || '', p.student_name, p.student_email, p.course_title,
-      p.amount_paid, iso(p.start_at), iso(p.end_at), p.note, p.revoked_at ? iso(p.revoked_at) : '']));
+      p.amount_paid, p.pay_mode === 'cash' ? 'Cash' : p.pay_mode ? 'UPI' : '', iso(p.start_at), iso(p.end_at), p.note, p.revoked_at ? iso(p.revoked_at) : '']));
   const blob = new Blob([lines.map(l => l.map(cell).join(',')).join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -589,267 +612,138 @@ function downloadCsv() {
 
 const signupUrl = () => new URL('management-login.html#register', location.href).href;
 
+let team = { invite_code: '', items: [] };
+let teamQuery = '';
+
 async function viewManagement() {
   const sub = 'People who refer students. They see courses and prices and share their Management ID (GCM…) as the Referral ID.';
   setView(head('People', 'Management', sub) + skeleton(300));
-  const data = await guarded(() => api('/api/admin/managers'));
+  team = await guarded(() => api('/api/admin/managers'));
   setView(`
     ${head('People', 'Management', sub, `<button class="btn outline sm" data-copy-url>${icon('copy')} Copy registration link</button>`)}
     <div class="notice info" style="margin-bottom:16px">${icon('info')}<div>New members register once with the <b>management referral code</b>
-      ${data.invite_code ? `(now <b class="mono">${esc(data.invite_code)}</b>)` : '(<b>not set</b>, so registration is closed)'}. After that they log in with just their email and password.
-      Change the code in <a href="#/account" style="font-weight:700">Admin account</a>.</div></div>
-    ${data.items.length ? `<div class="card table-wrap"><table class="responsive">
-      <thead><tr><th>Member</th><th>Management ID</th><th>Phone</th><th class="num">Approved referrals</th><th class="num">Waiting</th><th>Status</th><th></th></tr></thead>
-      <tbody>${data.items.map(m => `<tr class="${m.revoked_at ? 'revoked' : ''}">
-        <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(m.name))}</span><div style="min-width:0"><b>${esc(m.name)}</b><span>${esc(m.email)} · joined ${fmtDate(m.created_at)}</span></div></div></td>
-        <td data-label="Management ID" class="mono strong">${esc(m.manager_code)}</td>
-        <td data-label="Phone">${m.phone ? `<a href="${esc(telHref(m.phone))}" class="strong">${esc(m.phone)}</a>` : '<span class="faint">—</span>'}</td>
-        <td data-label="Approved" class="num strong">${m.approved}</td><td data-label="Waiting" class="num">${m.pending}</td>
-        <td data-label="Status">${m.revoked_at ? badge('expired', 'Revoked ' + fmtDate(m.revoked_at)) : badge('active')}</td>
-        <td class="right actions">${m.revoked_at
-          ? `<button class="btn success sm" data-restore="${m.id}">${icon('check')} Restore</button>`
-          : `<button class="btn danger sm" data-revoke-m="${m.id}">${icon('x')} Revoke</button>`}</td></tr>`).join('')}</tbody></table></div>`
+      ${team.invite_code ? `(now <b class="mono">${esc(team.invite_code)}</b>)` : '(<b>not set</b>, so registration is closed)'}. After that they log in with their mobile number and password, or with Google.
+      Change the code in <a href="#/account" style="font-weight:700">Admin account</a>.
+      Turn on <b>Post updates</b> to let a member send updates for you (for example while you are away); turn it off to take it back.</div></div>
+    ${team.items.length ? `<div class="toolbar"><div class="search">${icon('search')}<input id="teamSearch" type="search" placeholder="Search name, email, phone or Management ID" aria-label="Search management members" value="${esc(teamQuery)}"></div></div>
+      <div class="card table-wrap"><table class="responsive">
+      <thead><tr><th>Member</th><th>Management ID</th><th>Phone</th><th>Referrals</th><th>Post updates</th><th>Status</th><th></th></tr></thead>
+      <tbody id="teamRows"></tbody></table></div>`
       : emptyState('users', 'No management members yet', 'Set the referral code in Admin account and share the registration link with your team.')}
   `);
   document.querySelector('[data-copy-url]').addEventListener('click', () => copyText(signupUrl(), 'Registration link copied'));
-  const byId = id => data.items.find(m => m.id === Number(id));
-  document.querySelectorAll('[data-revoke-m]').forEach(b => b.addEventListener('click', async () => {
+  const search = document.getElementById('teamSearch');
+  if (search) search.addEventListener('input', () => { teamQuery = search.value; renderTeam(); });
+  renderTeam();
+}
+
+function matchesTeam(m, q) {
+  q = q.trim().toLowerCase();
+  if (!q) return true;
+  const digits = q.replace(/^gcm\s*/, '').replace(/^0+/, '');
+  return [m.name, m.email, m.phone, m.mobile, m.manager_code].some(v => (v || '').toLowerCase().includes(q))
+    || (/^\d+$/.test(digits) && String(m.id) === digits);
+}
+
+function renderTeam() {
+  const body = document.getElementById('teamRows');
+  if (!body) return;
+  const rows = team.items.filter(m => matchesTeam(m, teamQuery));
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="7" class="empty-cell">${icon('users')}<div>No members match your search.</div></td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map(m => `<tr class="${m.revoked_at ? 'revoked' : ''}">
+    <td class="primary-cell"><div class="who"><span class="avatar-sm">${esc(initials(m.name))}</span><div style="min-width:0"><b>${esc(m.name)}</b><span>${esc(accountContact(m))} · joined ${fmtDate(m.created_at)}</span></div></div></td>
+    <td data-label="Management ID" class="mono strong">${esc(m.manager_code)}</td>
+    <td data-label="Phone">${m.phone ? `<a href="${esc(telHref(m.phone))}" class="strong">${esc(m.phone)}</a>` : '<span class="faint">—</span>'}</td>
+    <td data-label="Referrals" style="white-space:nowrap"><b>${m.approved}</b> approved<div class="tiny muted">${m.pending} waiting</div></td>
+    <td data-label="Post updates"><label class="switch" title="Let ${esc(m.name)} post updates"><input type="checkbox" data-post="${m.id}" ${m.can_post_updates ? 'checked' : ''}
+      aria-label="Let ${esc(m.name)} post updates"><span class="small">${m.can_post_updates ? 'On' : 'Off'}</span></label></td>
+    <td data-label="Status">${m.revoked_at ? badge('expired', 'Revoked ' + fmtDate(m.revoked_at)) : badge('active')}</td>
+    <td class="right actions"><div class="stack-actions">
+      <button class="btn outline sm" data-pw="${m.id}">${icon('key')} Password</button>
+      ${m.revoked_at
+        ? `<button class="btn success sm" data-restore="${m.id}">${icon('check')} Restore</button>`
+        : `<button class="btn danger sm" data-revoke-m="${m.id}">${icon('x')} Revoke</button>`}</div></td></tr>`).join('');
+  const byId = id => team.items.find(m => m.id === Number(id));
+  body.querySelectorAll('[data-post]').forEach(input => input.addEventListener('change', async () => {
+    const m = byId(input.dataset.post), enabled = input.checked;
+    input.disabled = true;
+    try {
+      await guarded(() => api(`/api/admin/managers/${m.id}/updates-access`, { method: 'PUT', body: { enabled } }));
+      m.can_post_updates = enabled;
+      showToast(enabled ? `${m.name} can post updates now.` : `${m.name} can no longer post updates.`, 'success');
+    } catch { input.checked = !enabled; }
+    input.disabled = false;
+    input.nextElementSibling.textContent = input.checked ? 'On' : 'Off';
+  }));
+  body.querySelectorAll('[data-pw]').forEach(b => b.addEventListener('click', () => resetManagerPassword(byId(b.dataset.pw))));
+  body.querySelectorAll('[data-revoke-m]').forEach(b => b.addEventListener('click', async () => {
     const m = byId(b.dataset.revokeM);
     if (!await confirmDialog({ title: `Revoke ${m.name}'s access?`, message: `${m.name} is logged out and cannot log in, and students can no longer use ${m.manager_code} as a Referral ID. Their past referrals are kept. You can restore access any time.`, confirmText: 'Revoke access', danger: true })) return;
     await guarded(() => api(`/api/admin/managers/${m.id}/revoke`, { method: 'POST' }));
     showToast(`${m.name}'s access revoked.`, 'success');
     viewManagement();
   }));
-  document.querySelectorAll('[data-restore]').forEach(b => b.addEventListener('click', async () => {
+  body.querySelectorAll('[data-restore]').forEach(b => b.addEventListener('click', async () => {
     const m = byId(b.dataset.restore);
-    if (!await confirmDialog({ title: `Restore ${m.name}'s access?`, message: `${m.name} can log in again with the same email and password, and ${m.manager_code} works as a Referral ID again.`, confirmText: 'Restore access' })) return;
+    if (!await confirmDialog({ title: `Restore ${m.name}'s access?`, message: `${m.name} can log in again as before, and ${m.manager_code} works as a Referral ID again.`, confirmText: 'Restore access' })) return;
     await guarded(() => api(`/api/admin/managers/${m.id}/restore`, { method: 'POST' }));
     showToast(`${m.name} can log in again.`, 'success');
     viewManagement();
   }));
 }
 
+function randomPassword() {
+  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from(crypto.getRandomValues(new Uint32Array(10)), b => chars[b % chars.length]).join('');
+}
+
+// For members who forgot their password: the admin sets a new one and they are logged out everywhere.
+function resetManagerPassword(m) {
+  const bg = document.createElement('div');
+  bg.className = 'dialog-bg';
+  bg.innerHTML = `<form class="dialog" role="dialog" aria-modal="true" aria-labelledby="mpwTitle" novalidate>
+    <h3 id="mpwTitle">New password for ${esc(m.name)}</h3>
+    <p>${esc(m.name)} (${esc(m.manager_code)}) is logged out everywhere and must use the new password. Share it with them.</p>
+    <div class="row" style="align-items:flex-end;margin-top:12px">
+      <div class="field" style="flex:1;margin:0"><label for="mPw">New password</label><input id="mPw" name="new_password" minlength="8" autocomplete="off"></div>
+      <button type="button" class="btn outline sm" data-gen style="margin-bottom:4px">${icon('sparkles')} Generate</button>
+    </div>
+    <div class="error"></div>
+    <div class="dialog-actions"><button type="button" class="btn outline" data-close>Cancel</button>
+      <button type="submit" class="btn primary">${icon('key')} Set password</button></div></form>`;
+  const f = bg.querySelector('form'), err = f.querySelector('.error');
+  const close = () => { bg.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  bg.addEventListener('click', e => { if (e.target === bg || e.target.closest('[data-close]')) close(); });
+  f.querySelector('[data-gen]').addEventListener('click', () => { f.new_password.value = randomPassword(); });
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const pw = f.new_password.value;
+    if (pw.length < 8) { showError(err, 'Password must be at least 8 characters.'); return; }
+    try {
+      await withLoading(f.querySelector('button[type=submit]'), () => api(`/api/admin/managers/${m.id}/password`, { method: 'POST', body: { new_password: pw } }));
+      close();
+      copyText(pw, `Password set and copied. Share it with ${m.name}.`);
+    } catch (ex) {
+      if (ex.status === 401) return location.replace('admin-login.html');
+      showError(err, ex.message);
+    }
+  });
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(bg);
+  f.new_password.focus();
+}
+
 // ---------- Updates ----------
 
-const TEMPLATES = [
-  ['message', 'Community link', {
-    title: 'Join our student community',
-    message: 'Join the official G-CATION group for class updates, practice material and doubts.\nPlease keep the group respectful.',
-    link_label: 'Join community', link_url: 'https://chat.whatsapp.com/',
-  }],
-  ['video', 'Google Meet class', {
-    title: `Live class: ${new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}, 7:00 PM`,
-    message: 'Please join 5 minutes early. Keep your mic muted until you are asked to speak.',
-    link_label: 'Join Google Meet', link_url: 'https://meet.google.com/',
-  }],
-  ['list', 'Instructions', { title: 'Important instructions', message: '1. \n2. \n3. ', link_label: '', link_url: '' }],
-];
-
-async function viewUpdates() {
-  editingAnn = null;
-  setView(`
-    ${head('Content', 'Updates', 'Share Google Meet links, the community group or instructions with the management team, all paid students or the students of chosen courses.')}
-    <div class="panel-grid">
-      <form class="card pad-lg" id="annForm" novalidate>
-        <h3 class="card-title" id="composerTitle"></h3>
-        <div class="templates" id="templates"></div>
-        <div class="field"><label for="aTitle">Title</label><input id="aTitle" name="title" maxlength="120" placeholder="e.g. Live class today at 7 PM" required></div>
-        <div class="field"><label for="aMsg">Message <span class="faint">(optional)</span></label><textarea id="aMsg" name="message" maxlength="3000" placeholder="Instructions, timings, rules…"></textarea></div>
-        <div class="row2">
-          <div class="field"><label for="aUrl">Link <span class="faint">(optional)</span></label><input id="aUrl" name="link_url" maxlength="500" placeholder="https://meet.google.com/…"></div>
-          <div class="field"><label for="aLabel">Button text</label><input id="aLabel" name="link_label" maxlength="60" placeholder="Join Google Meet"></div>
-        </div>
-        <div class="field"><span class="label" id="audLabel">Who should see this?</span>
-          <div class="multi" id="audBox">
-            <button type="button" class="multi-btn" id="audBtn" aria-haspopup="true" aria-expanded="false" aria-labelledby="audLabel audSummary"><span id="audSummary"></span>${icon('chevron')}</button>
-            <div class="multi-list" id="audList" role="group" aria-labelledby="audLabel" hidden></div>
-          </div><small>Tick everyone who should get it.</small></div>
-        <div class="preview-box"><div class="tiny faint strong" style="margin-bottom:8px">PREVIEW · WHAT THEY SEE</div><div id="annPreview"></div></div>
-        <div class="error" id="annErr"></div>
-        <div class="row" style="margin-top:14px">
-          <button class="btn primary" type="submit" id="annSubmit"></button>
-          <button class="btn outline" type="button" id="annCancel" hidden>Cancel edit</button>
-        </div>
-      </form>
-      <div>
-        <div class="section-title"><h2>Posted updates</h2><span class="muted small" id="annCount"></span></div>
-        <div id="annList">${skeleton(200)}</div>
-      </div>
-    </div>
-  `);
-  const f = annForm();
-  const tpl = document.getElementById('templates');
-  tpl.innerHTML = '<span class="tiny faint strong">QUICK START</span>' +
-    TEMPLATES.map(([ic, label], i) => `<button type="button" data-t="${i}">${icon(ic)} ${label}</button>`).join('');
-  tpl.querySelectorAll('[data-t]').forEach(b => b.addEventListener('click', () => {
-    const v = TEMPLATES[b.dataset.t][2];
-    f.title.value = v.title; f.message.value = v.message; f.link_url.value = v.link_url; f.link_label.value = v.link_label;
-    renderAnnPreview();
-    (v.link_url ? f.link_url : f.message).focus();
-  }));
-  f.addEventListener('input', renderAnnPreview);
-  f.addEventListener('submit', submitAnnouncement);
-  wireAudience();
-  document.getElementById('annCancel').addEventListener('click', () => resetComposer());
-  if (!courses.length) courses = await guarded(() => api('/api/admin/courses'));
-  resetComposer();
-  await loadAnnouncements();
-}
-
-function annForm() { return document.getElementById('annForm'); }
-
-function resetComposer(item = null) {
-  editingAnn = item;
-  const f = annForm();
-  f.title.value = item ? item.title : '';
-  f.message.value = item ? item.message : '';
-  f.link_url.value = item ? item.link_url : '';
-  f.link_label.value = item ? item.link_label : '';
-  audienceOptions(item ? audienceOf(item) : ['all']);
-  document.getElementById('composerTitle').innerHTML = icon(item ? 'edit' : 'megaphone') + (item ? ' Edit update' : ' New update');
-  document.getElementById('annSubmit').innerHTML = item ? icon('check') + ' Save changes' : icon('send') + ' Post update';
-  document.getElementById('annCancel').hidden = !item;
-  showError(document.getElementById('annErr'), '');
-  renderAnnPreview();
-}
-
-// Audience choices as checkbox values: 'management', 'all' (every paid student) and 'c<course id>'.
-function audienceOf(a) {
-  return [a.to_management && 'management', a.to_all_students && 'all', ...(a.course_ids || []).map(id => 'c' + id)].filter(Boolean);
-}
-
-// Adds https:// to a link typed without it (meet.google.com/abc → https://meet.google.com/abc).
-function fullLink(v) {
-  v = v.trim();
-  if (!v) return '';
-  return 'https://' + v.replace(/^(https?:)?\/+/i, '');
-}
-
-function chosenAudience() {
-  return [...document.querySelectorAll('#audList input:checked')].map(i => i.value);
-}
-
-// Fills the "Who should see this?" list. With no `checked`, keeps what is ticked now.
-function audienceOptions(checked = chosenAudience()) {
-  const list = document.getElementById('audList');
-  if (!list) return;
-  const opts = [['management', 'users', 'Management team', audience.management],
-    ['all', 'graduation', 'All paid students', audience.all],
-    ...courses.map(c => ['c' + c.id, 'book', `${c.title} students`, audience[c.id]])];
-  list.innerHTML = opts.map(([v, ic, label, n]) => `<label class="multi-opt">
-      <input type="checkbox" value="${v}" ${checked.includes(v) ? 'checked' : ''}>
-      ${icon(ic)}<span>${esc(label)}</span><b>${n || 0}</b></label>`).join('');
-  syncAudience();
-}
-
-// Course boxes are covered by "All paid students", so they are shown ticked and locked.
-function syncAudience() {
-  const all = document.querySelector('#audList input[value=all]')?.checked;
-  document.querySelectorAll('#audList input[value^=c]').forEach(i => {
-    if (all) i.dataset.was ??= i.checked ? '1' : '';
-    else if (i.dataset.was !== undefined) { i.checked = i.dataset.was === '1'; delete i.dataset.was; }
-    i.disabled = !!all;
-    if (all) i.checked = true;
+function viewUpdates() {
+  return composerView({
+    heading: head('Content', 'Updates', 'Share Google Meet links, the community group or instructions with the management team, all paid students or the students of chosen courses.'),
+    base: '/api/admin/announcements', login: 'admin-login.html',
   });
-  const summary = document.getElementById('audSummary');
-  if (summary) summary.textContent = audienceText() || 'Choose who should see this';
-  summary?.classList.toggle('faint', !audienceText());
-}
-
-// e.g. "Management team, Course A students".
-function audienceText() {
-  const picked = chosenAudience();
-  const all = picked.includes('all');
-  return [...document.querySelectorAll('#audList input:checked')]
-    .filter(i => !(all && i.value.startsWith('c')))
-    .map(i => i.closest('label').querySelector('span').textContent).join(', ');
-}
-
-function wireAudience() {
-  const box = document.getElementById('audBox'), btn = document.getElementById('audBtn'), list = document.getElementById('audList');
-  const open = v => { list.hidden = !v; btn.setAttribute('aria-expanded', v); box.classList.toggle('open', v); };
-  btn.addEventListener('click', () => open(list.hidden));
-  list.addEventListener('change', syncAudience);
-  document.addEventListener('click', e => { if (!box.contains(e.target)) open(false); });
-  box.addEventListener('keydown', e => { if (e.key === 'Escape' && !list.hidden) { e.stopPropagation(); open(false); btn.focus(); } });
-}
-
-function renderAnnPreview() {
-  const f = annForm();
-  const title = f.title.value.trim() || 'Your title appears here';
-  const msg = f.message.value.trim();
-  const url = f.link_url.value.trim();
-  document.getElementById('annPreview').innerHTML = `<article class="card update" style="box-shadow:none">
-    <div class="update-icon">${icon(url.includes('meet.google') ? 'video' : url.includes('whatsapp') ? 'message' : url ? 'link' : 'megaphone', 'lg')}</div>
-    <div style="min-width:0"><h3>${esc(title)} <span class="badge b-new">NEW</span></h3><div class="meta">just now</div>
-      ${msg ? `<p class="msg">${linkify(msg)}</p>` : ''}
-      ${url ? `<span class="btn primary sm">${icon('external')} ${esc(f.link_label.value.trim() || 'Open link')}</span>` : ''}</div></article>`;
-}
-
-async function submitAnnouncement(e) {
-  e.preventDefault();
-  const f = annForm(), err = document.getElementById('annErr');
-  const body = {
-    title: f.title.value.trim(), message: f.message.value, link_url: fullLink(f.link_url.value),
-    link_label: f.link_label.value,
-  };
-  f.link_url.value = body.link_url;
-  const picked = chosenAudience();
-  body.to_management = picked.includes('management');
-  body.to_all_students = picked.includes('all');
-  body.course_ids = body.to_all_students ? [] : picked.filter(v => v.startsWith('c')).map(v => Number(v.slice(1)));
-  if (!body.title) { showError(err, 'Add a title.'); return; }
-  if (!body.to_management && !body.to_all_students && !body.course_ids.length) { showError(err, 'Choose who should see this update.'); return; }
-  if (body.link_url && !/^https:\/\/\S+\.\S+/.test(body.link_url)) { showError(err, 'The link must be a full address starting with https://'); return; }
-  if (/^https:\/\/(chat\.whatsapp\.com|meet\.google\.com)\/?$/.test(body.link_url)) { showError(err, 'Paste the full group or meeting link, not just the website.'); return; }
-  showError(err, '');
-  if (!editingAnn && !await confirmDialog({
-    title: 'Post this update?', message: `${audienceText()} will see it right away.`, confirmText: 'Post update',
-  })) return;
-  try {
-    await withLoading(document.getElementById('annSubmit'), () => editingAnn
-      ? api(`/api/admin/announcements/${editingAnn.id}`, { method: 'PUT', body })
-      : api('/api/admin/announcements', { method: 'POST', body }));
-    showToast(editingAnn ? 'Update saved.' : 'Update posted.', 'success');
-    resetComposer();
-    loadAnnouncements();
-  } catch (ex) {
-    if (ex.status === 401) return location.replace('admin-login.html');
-    showError(err, ex.message);
-  }
-}
-
-async function loadAnnouncements() {
-  const data = await guarded(() => api('/api/admin/announcements'));
-  audience = data.audience;
-  audienceOptions();
-  const list = document.getElementById('annList');
-  if (!list) return;
-  document.getElementById('annCount').textContent = data.items.length ? `${data.items.length} posted` : '';
-  if (!data.items.length) {
-    list.innerHTML = emptyState('megaphone', 'Nothing posted yet', 'Use a quick start template to share your community link or a Google Meet class.');
-    return;
-  }
-  list.innerHTML = data.items.map(a => `<div class="card ann-item">
-    <div class="row between" style="align-items:flex-start"><h4>${esc(a.title)}</h4>${badge('info', a.audience_label)}</div>
-    <div class="tiny muted">${fmtDateTime(a.created_at)}${a.updated_at > a.created_at + 60 ? ' · edited' : ''}</div>
-    ${a.message ? `<p class="msg">${linkify(a.message)}</p>` : ''}
-    ${a.link_url ? `<a class="small strong" style="color:var(--purple);word-break:break-all" href="${esc(a.link_url)}" target="_blank" rel="noopener">${icon('link')} ${esc(a.link_url)}</a>` : ''}
-    <div class="row" style="margin-top:12px;gap:6px">
-      <button class="btn outline sm" data-edit="${a.id}">${icon('edit')} Edit</button>
-      <button class="btn danger sm" data-del="${a.id}">${icon('trash')} Delete</button>
-    </div></div>`).join('');
-  list.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
-    resetComposer(data.items.find(a => a.id === Number(b.dataset.edit)));
-    annForm().scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }));
-  list.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
-    if (!await confirmDialog({ title: 'Delete this update?', message: 'Nobody will see it any more.', confirmText: 'Delete', danger: true })) return;
-    await guarded(() => api(`/api/admin/announcements/${b.dataset.del}`, { method: 'DELETE' }));
-    if (editingAnn && editingAnn.id === Number(b.dataset.del)) resetComposer();
-    showToast('Update deleted.', 'success');
-    loadAnnouncements();
-  }));
 }
 
 // ---------- Payment QR ----------
@@ -997,6 +891,10 @@ function courseFields(c = {}) {
     <div class="field"><label>Permanent classroom link <span class="faint">(optional)</span></label>
       <input name="classroom_link" maxlength="500" placeholder="https://meet.google.com/…" value="${esc(c.classroom_link)}">
       <small>Shows as an "Open classroom" button for paid students. For one-off links, use Updates.</small></div>
+    <div class="field"><span class="label">Referral details</span>
+      <select name="referral_required" aria-label="Referral details">
+        <option value="0" ${c.referral_required ? '' : 'selected'}>Optional: students may leave "Referred by" and Referral ID empty</option>
+        <option value="1" ${c.referral_required ? 'selected' : ''}>Required: students must give the referrer's name and Referral ID</option></select></div>
     <div class="error"></div>`;
 }
 
@@ -1004,6 +902,7 @@ function readCourse(f) {
   return {
     title: f.title.value, description: f.description.value, features: f.features.value, price: Number(f.price.value),
     default_days: Number(f.default_days.value), classroom_link: f.classroom_link.value, is_active: f.is_active.value === '1',
+    referral_required: f.referral_required.value === '1',
   };
 }
 
@@ -1015,7 +914,7 @@ async function viewCourses() {
     <div class="stack">
       ${courses.map(c => `<details class="fold card" style="padding:0" ${courses.length === 1 ? 'open' : ''}>
         <summary><span class="row" style="gap:10px">${c.has_thumbnail ? `<img src="${thumbUrl(c)}" alt="" style="width:34px;height:34px;border-radius:9px;object-fit:cover">` : icon('book')} ${esc(c.title)} <span class="muted small" style="font-weight:600">${rupees(c.price)} · ${c.default_days} days</span>
-          ${c.is_active ? badge('active', 'Open') : badge('none', 'Hidden')}</span></summary>
+          ${c.is_active ? badge('active', 'Open') : badge('none', 'Hidden')}${c.referral_required ? ' ' + badge('info', 'Referral required') : ''}</span></summary>
         <div class="fold-body">
           ${c.is_active ? '' : `<div class="notice warn" style="margin-bottom:6px;align-items:center">${icon('eyeOff')}<div style="flex:1">This course is <b>hidden</b>. It is not on the website and new students cannot enroll. Students who already paid keep their access.</div>
             <button class="btn primary sm" type="button" data-visibility="${c.id}">${icon('eye')} Show on website</button></div>`}
@@ -1127,7 +1026,7 @@ async function setCourseVisible(c, show = !c.is_active, ask = true) {
   })) return;
   await guarded(() => api(`/api/admin/courses/${c.id}`, { method: 'PUT', body: {
     title: c.title, description: c.description, features: c.features, price: Number(c.price), default_days: c.default_days,
-    classroom_link: c.classroom_link, is_active: show,
+    classroom_link: c.classroom_link, is_active: show, referral_required: c.referral_required,
   }}));
   showToast(show ? 'Course is visible on the website again.' : 'Course hidden from the website.', 'success');
   viewCourses();
@@ -1155,7 +1054,7 @@ async function viewAccount() {
       <div class="stack">
         <form class="card pad-lg" id="inviteForm" novalidate>
           <h3 class="card-title">${icon('shield')} Management referral code</h3>
-          <p class="card-sub">New management members enter this once, when they register. People who already registered just log in with their email and password, even after you change it. Leave it empty to close registration.</p>
+          <p class="card-sub">New management members enter this once, when they register. People who already registered just log in, even after you change it. Leave it empty to close registration.</p>
           <div class="row" style="align-items:flex-end">
             <div class="field" style="flex:1;min-width:180px;margin:0"><label for="invCode">Referral code</label>
               <input id="invCode" name="invite_code" maxlength="60" autocomplete="off" spellcheck="false" value="${esc(team.invite_code)}" placeholder="e.g. GCTEAM2026"></div>

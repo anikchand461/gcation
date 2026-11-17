@@ -28,6 +28,13 @@ class Settings:
     # Support phone used only to fill the setting the first time; change it in Admin → Payment QR.
     contact_phone = os.getenv("CONTACT_PHONE", "").strip()
 
+    # Google sign-in (Google Cloud → Google Auth Platform → Clients). The secret stays on the server.
+    google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+    # This API's public address, e.g. https://gcation.onrender.com. Google sends app sign-ins back to
+    # <API_PUBLIC_URL>/api/auth/google/callback, which must be listed as a redirect URI in Google Cloud.
+    api_public_url = os.getenv("API_PUBLIC_URL", "").strip().rstrip("/")
+
     # Set to true once the site is served over HTTPS.
     cookie_secure = _bool(os.getenv("COOKIE_SECURE", "false"))
 

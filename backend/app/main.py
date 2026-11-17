@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from . import screenshots
 from .db import close_db, init_db, pool
-from .routers import admin, management, public, student
+from .routers import accounts, admin, management, public, student
 
 # Addresses the frontend is opened from. Only these may call the API with login cookies.
 # Add your live site here when you deploy, e.g. "https://gcation.in".
@@ -51,6 +51,7 @@ app.add_middleware(
 )
 
 app.include_router(public.router)
+app.include_router(accounts.router)
 app.include_router(student.router)
 app.include_router(admin.router)
 app.include_router(management.router)

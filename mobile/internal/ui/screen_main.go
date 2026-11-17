@@ -66,6 +66,9 @@ func (a *App) layoutHome(gtx C) D {
 		onClick func()
 	}
 	var atts []att
+	if me.Student.Mobile == nil {
+		atts = append(atts, att{toneBlue, icCall, "Add your mobile number", "Then you can also log in with your mobile number and password.", "Add", func() { a.tab = tabProfile }})
+	}
 	if me.Unread > 0 {
 		atts = append(atts, att{toneGreen, icMegaphone, plural(me.Unread, "new update") + " from G-CATION", "Class links, community and instructions.", "Open", func() { a.tab = tabUpdates }})
 	}

@@ -25,7 +25,7 @@ TINT = (247, 245, 255)
 RECEIPT_SQL = (
     "SELECT e.id, e.course_id, e.start_at, e.end_at, e.amount_paid, e.note, e.granted_at, e.revoked_at, e.student_id, "
     "s.name AS student_name, s.email AS student_email, s.phone AS student_phone, s.student_no, c.title AS course_title, "
-    "p.payer_name, p.method AS paid_using, p.paid_on, p.reference, p.age, p.referred_by, p.manager_id, m.label AS paid_to "
+    "p.pay_mode, p.payer_name, p.method AS paid_using, p.paid_on, p.reference, p.age, p.referred_by, p.manager_id, m.label AS paid_to "
     "FROM enrollments e JOIN students s ON s.id = e.student_id JOIN courses c ON c.id = e.course_id "
     "LEFT JOIN payment_claims p ON p.id = e.claim_id LEFT JOIN payment_methods m ON m.slot = p.qr_slot "
 )
@@ -127,7 +127,7 @@ def build_pdf(g: dict, contact_phone: str = "") -> bytes:
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(*MUTED)
     code = student_code(g["student_no"])
-    lines = ([f"Student ID: {code}"] if code else []) + [_t(g["student_email"])] + ([_t(g["student_phone"])] if g["student_phone"] else [])
+    lines = [line for line in (f"Student ID: {code}" if code else "", _t(g["student_email"]), _t(g["student_phone"])) if line]
     if g.get("age"):
         lines.append(f"Age: {g['age']}")
     for i, line in enumerate(lines):
@@ -175,7 +175,7 @@ def build_pdf(g: dict, contact_phone: str = "") -> bytes:
         for label, value in (
             ("Paid to", g.get("paid_to")),
             ("Paid using", g.get("paid_using")),
-            ("Paid by (account name)", g.get("payer_name")),
+            ("Paid by" if g.get("pay_mode") == "cash" else "Paid by (account name)", g.get("payer_name")),
             ("Payment date", _paid_on(g.get("paid_on"))),
             ("UTR / transaction ID", g.get("reference")),
             ("Referred by", g.get("referred_by")),

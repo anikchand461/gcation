@@ -26,39 +26,12 @@ from ..access import (
 from ..db import get_db
 from ..images import decode_image
 from ..receipts import RECEIPT_SQL, load_grant, pdf_response, receipt_summary
-from ..schemas import ClaimIn, LoginIn, PasswordChangeIn, ProfileIn, QrSlot, RegisterIn
+from ..schemas import ClaimIn, PasswordChangeIn, ProfileIn, QrSlot
 
 router = APIRouter(prefix="/api")
 
 
 # ---------- Auth ----------
-
-@router.post("/register")
-def register(body: RegisterIn, response: Response, db: Connection = Depends(get_db)):
-    if db.execute("SELECT 1 FROM students WHERE email = %s", (body.email,)).fetchone():
-        raise HTTPException(409, "An account with this email already exists. Please log in.")
-    with db.transaction():
-        student = db.execute(
-            "INSERT INTO students (name, email, phone, password_hash, created_at) VALUES (%s, %s, %s, %s, %s) "
-            "ON CONFLICT (email) DO NOTHING RETURNING id",
-            (body.name, body.email, body.phone, auth.hash_password(body.password), now()),
-        ).fetchone()
-        if not student:  # registered a moment ago in another request
-            raise HTTPException(409, "An account with this email already exists. Please log in.")
-        token = auth.start_session(db, response, "student", student["id"])
-    return {"ok": True} | ({"token": token} if body.client == "app" else {})
-
-
-@router.post("/login")
-def login(body: LoginIn, request: Request, response: Response, db: Connection = Depends(get_db)):
-    auth.throttle(request)
-    student = db.execute("SELECT * FROM students WHERE email = %s", (body.email.strip().lower(),)).fetchone()
-    if not student or not auth.verify_password(body.password, student["password_hash"]):
-        auth.record_failure(request)
-        raise HTTPException(401, "Wrong email or password.")
-    token = auth.start_session(db, response, "student", student["id"])
-    return {"ok": True} | ({"token": token} if body.client == "app" else {})
-
 
 @router.post("/logout")
 def logout(request: Request, response: Response, db: Connection = Depends(get_db)):
@@ -89,7 +62,7 @@ def me(student: dict = Depends(auth.current_student), db: Connection = Depends(g
     claims = {
         c["course_id"]: claim_out(c)
         for c in db.execute(
-            "SELECT DISTINCT ON (course_id) course_id, qr_slot, payer_name, method, amount, paid_on, reference, age, referred_by, "
+            "SELECT DISTINCT ON (course_id) course_id, pay_mode, qr_slot, payer_name, method, amount, paid_on, reference, age, referred_by, "
             "manager_id, screenshot IS NOT NULL AS has_screenshot, created_at "
             "FROM payment_claims WHERE student_id = %s AND status = 'pending' ORDER BY course_id, id DESC",
             (student["id"],),
@@ -135,7 +108,8 @@ def change_password(
     student: dict = Depends(auth.current_student),
     db: Connection = Depends(get_db),
 ):
-    if not auth.verify_password(body.current_password, student["password_hash"]):
+    # Google accounts start with no password, so they set one without a current password.
+    if student["password_hash"] and not auth.verify_password(body.current_password, student["password_hash"]):
         raise HTTPException(400, "Your current password is not correct.")
     db.execute(
         "UPDATE students SET password_hash = %s WHERE id = %s", (auth.hash_password(body.new_password), student["id"])
@@ -176,8 +150,8 @@ def payment_qr(
     if not method or not method["upi_id"]:
         raise HTTPException(404, "This payment option has no UPI ID.")
     # The note lets the admin match the bank entry to an account: the Student ID once the
-    # student has one, otherwise their email.
-    note = f"GCATION {student_code(student['student_no']) or student['email']}"
+    # student has one, otherwise their mobile number or email.
+    note = f"GCATION {student_code(student['student_no']) or student['mobile'] or student['email']}"
     upi = (
         f"upi://pay?pa={quote(method['upi_id'], safe='@')}&pn={quote(method['payee_name'] or 'G-CATION')}"
         f"&am={course['price']:.2f}&cu=INR&tn={quote(note)}"
@@ -190,7 +164,9 @@ def payment_qr(
 
 @router.post("/me/claims")
 def create_claim(body: ClaimIn, student: dict = Depends(auth.current_student), db: Connection = Depends(get_db)):
-    get_course(db, body.course_id)
+    course = get_course(db, body.course_id)
+    if course["referral_required"] and not (body.referred_by and body.referral_id):
+        raise HTTPException(400, "This course needs the name and Referral ID of the person who referred you.")
     pending = db.execute(
         "SELECT COUNT(*) AS n FROM payment_claims WHERE student_id = %s AND status = 'pending'", (student["id"],)
     ).fetchone()["n"]
@@ -208,10 +184,10 @@ def create_claim(body: ClaimIn, student: dict = Depends(auth.current_student), d
             )
     shot, shot_type = decode_image(body.screenshot) if body.screenshot else (None, "")
     db.execute(
-        "INSERT INTO payment_claims (student_id, course_id, qr_slot, payer_name, method, amount, paid_on, reference, "
-        "age, referred_by, manager_id, screenshot, screenshot_type, created_at) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (student["id"], body.course_id, body.qr_slot, body.payer_name, body.method, body.amount,
+        "INSERT INTO payment_claims (student_id, course_id, pay_mode, qr_slot, payer_name, method, amount, paid_on, "
+        "reference, age, referred_by, manager_id, screenshot, screenshot_type, created_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (student["id"], body.course_id, body.pay_mode, body.qr_slot, body.payer_name, body.method, body.amount,
          body.paid_on, body.reference, body.age, body.referred_by, manager_id, shot, shot_type, now()),
     )
     return {"ok": True}

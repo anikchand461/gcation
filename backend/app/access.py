@@ -52,7 +52,7 @@ def active_course_ids(access: dict[tuple[int, int], dict], student_id: int) -> l
 
 # Every course column except the thumbnail bytes (served separately as an image).
 COURSE_COLUMNS = (
-    "id, title, description, features, price, default_days, classroom_link, is_active, "
+    "id, title, description, features, price, default_days, classroom_link, is_active, referral_required, "
     "thumbnail IS NOT NULL AS has_thumbnail, thumbnail_updated_at"
 )
 
@@ -65,7 +65,7 @@ def get_course(db: Connection, course_id: int) -> dict:
 
 
 def public_course(c: dict) -> dict:
-    out = {k: c[k] for k in ("id", "title", "description", "price", "default_days", "has_thumbnail", "thumbnail_updated_at")}
+    out = {k: c[k] for k in ("id", "title", "description", "price", "default_days", "referral_required", "has_thumbnail", "thumbnail_updated_at")}
     out["features"] = [line.strip() for line in c["features"].splitlines() if line.strip()]
     return out
 
@@ -105,12 +105,21 @@ def give_student_no(db: Connection, student_id: int) -> None:
     )
 
 
+def _sign_in(a: dict) -> dict:
+    """How the account signs in: its log-in mobile (None until it has one), a password, and Google."""
+    return {"mobile": a["mobile"], "has_password": bool(a["password_hash"]), "google": bool(a["google_sub"])}
+
+
 def student_out(s: dict) -> dict:
-    return {k: s[k] for k in ("id", "name", "email", "phone", "created_at")} | {"student_code": student_code(s["student_no"])}
+    return {k: s[k] for k in ("id", "name", "email", "phone", "created_at")} | _sign_in(s) | {
+        "student_code": student_code(s["student_no"])
+    }
 
 
 def manager_out(m: dict) -> dict:
-    return {k: m[k] for k in ("id", "name", "email", "phone", "created_at", "revoked_at")} | {"manager_code": manager_code(m["id"])}
+    return {k: m[k] for k in ("id", "name", "email", "phone", "created_at", "revoked_at", "can_post_updates")} | _sign_in(m) | {
+        "manager_code": manager_code(m["id"])
+    }
 
 
 # What students, management and the admin see of an update. Needs `FROM announcements a`.
@@ -134,10 +143,55 @@ def course_titles(db: Connection) -> dict[int, str]:
     return {c["id"]: c["title"] for c in db.execute("SELECT id, title FROM courses")}
 
 
+def update_audience(db: Connection) -> dict:
+    """How many people each update target reaches: students with active access ("all" and per
+    course id) and active management members ("management")."""
+    access = load_access(db)
+    per_course: dict[int, set[int]] = {}
+    for (sid, cid), a in access.items():
+        if a["status"] == "active":
+            per_course.setdefault(cid, set()).add(sid)
+    everyone = set().union(*per_course.values()) if per_course else set()
+    team = db.execute("SELECT COUNT(*) AS n FROM managers WHERE revoked_at IS NULL").fetchone()["n"]
+    return {"all": len(everyone), "management": team, **{str(cid): len(s) for cid, s in per_course.items()}}
+
+
+def check_courses(db: Connection, course_ids: list[int]) -> None:
+    for cid in course_ids:
+        get_course(db, cid)
+
+
+def insert_update(db: Connection, body, manager_id: int | None = None) -> int:
+    """Posts an update (an AnnouncementIn). manager_id is the management member posting it; None is the admin."""
+    check_courses(db, body.course_ids)
+    t = now()
+    return db.execute(
+        "INSERT INTO announcements (title, message, link_url, link_label, to_management, to_all_students, course_ids, "
+        "manager_id, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        (body.title, body.message, body.link_url, body.link_label, body.to_management, body.to_all_students,
+         body.course_ids, manager_id, t, t),
+    ).fetchone()["id"]
+
+
+def edit_update(db: Connection, announcement_id: int, body, manager_id: int | None = None) -> None:
+    """Saves changes to an update. With manager_id, only that member's own updates can change."""
+    check_courses(db, body.course_ids)
+    # course_id is cleared: the audience now lives in to_management / to_all_students / course_ids.
+    cur = db.execute(
+        "UPDATE announcements SET title = %s, message = %s, link_url = %s, link_label = %s, to_management = %s, "
+        "to_all_students = %s, course_ids = %s, course_id = NULL, updated_at = %s "
+        "WHERE id = %s AND (%s::bigint IS NULL OR manager_id = %s)",
+        (body.title, body.message, body.link_url, body.link_label, body.to_management, body.to_all_students,
+         body.course_ids, now(), announcement_id, manager_id, manager_id),
+    )
+    if cur.rowcount == 0:
+        raise HTTPException(404, "Announcement not found.")
+
+
 # Payment note columns, without the screenshot bytes (the admin fetches the image separately).
 # Needs `FROM payment_claims p`; pass rows through claim_out().
 CLAIM_COLUMNS = (
-    "p.id, p.student_id, p.course_id, p.qr_slot, p.payer_name, p.method, p.amount, p.paid_on, p.reference, "
+    "p.id, p.student_id, p.course_id, p.pay_mode, p.qr_slot, p.payer_name, p.method, p.amount, p.paid_on, p.reference, "
     "p.age, p.referred_by, p.manager_id, p.status, p.created_at, p.screenshot IS NOT NULL AS has_screenshot"
 )
 

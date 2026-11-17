@@ -1,53 +1,26 @@
 """Management team accounts: they see the courses and prices and share their Management ID
 (GCM001) with students, who enter it as the Referral ID when they pay. They cannot enroll."""
 
-import hmac
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from psycopg import Connection
 
 from .. import auth
-from ..access import ANNOUNCEMENT_COLUMNS, COURSE_COLUMNS, get_setting, manager_out, now, public_course
+from ..access import (
+    ANNOUNCEMENT_COLUMNS,
+    COURSE_COLUMNS,
+    audience_label,
+    course_titles,
+    edit_update,
+    insert_update,
+    manager_out,
+    now,
+    public_course,
+    update_audience,
+)
 from ..db import get_db
-from ..schemas import LoginIn, ManagerRegisterIn, PasswordChangeIn
+from ..schemas import AnnouncementIn, PasswordChangeIn
 
 router = APIRouter(prefix="/api/management")
-
-REVOKED = "Your management access has been revoked. Please contact the G-CATION admin to get it back."
-
-
-@router.post("/register")
-def register(body: ManagerRegisterIn, request: Request, response: Response, db: Connection = Depends(get_db)):
-    auth.throttle(request)
-    code = get_setting(db, "management_invite_code")
-    if not code:
-        raise HTTPException(403, "Management registration is closed right now. Please contact the G-CATION admin.")
-    if not hmac.compare_digest(body.invite_code.strip().upper().encode(), code.upper().encode()):
-        auth.record_failure(request)
-        raise HTTPException(403, "This referral code is not correct. Ask the G-CATION admin for the current code.")
-    with db.transaction():
-        manager = db.execute(
-            "INSERT INTO managers (name, email, phone, password_hash, created_at) VALUES (%s, %s, %s, %s, %s) "
-            "ON CONFLICT (email) DO NOTHING RETURNING id",
-            (body.name, body.email, body.phone, auth.hash_password(body.password), now()),
-        ).fetchone()
-        if not manager:
-            raise HTTPException(409, "A management account with this email already exists. Please log in.")
-        token = auth.start_session(db, response, "management", manager_id=manager["id"])
-    return {"ok": True} | ({"token": token} if body.client == "app" else {})
-
-
-@router.post("/login")
-def login(body: LoginIn, request: Request, response: Response, db: Connection = Depends(get_db)):
-    auth.throttle(request)
-    manager = db.execute("SELECT * FROM managers WHERE email = %s", (body.email.strip().lower(),)).fetchone()
-    if not manager or not auth.verify_password(body.password, manager["password_hash"]):
-        auth.record_failure(request)
-        raise HTTPException(401, "Wrong email or password.")
-    if manager["revoked_at"] is not None:
-        raise HTTPException(403, REVOKED)
-    token = auth.start_session(db, response, "management", manager_id=manager["id"])
-    return {"ok": True} | ({"token": token} if body.client == "app" else {})
 
 
 @router.post("/logout")
@@ -88,10 +61,54 @@ def change_password(
     manager: dict = Depends(auth.current_manager),
     db: Connection = Depends(get_db),
 ):
-    if not auth.verify_password(body.current_password, manager["password_hash"]):
+    # Google accounts start with no password, so they set one without a current password.
+    if manager["password_hash"] and not auth.verify_password(body.current_password, manager["password_hash"]):
         raise HTTPException(400, "Your current password is not correct.")
     db.execute(
         "UPDATE managers SET password_hash = %s WHERE id = %s", (auth.hash_password(body.new_password), manager["id"])
     )
     auth.end_other_manager_sessions(db, request, manager["id"])
+    return {"ok": True}
+
+
+# ---------- Posting updates (only while the admin allows it) ----------
+
+def poster(manager: dict = Depends(auth.current_manager)) -> dict:
+    if not manager["can_post_updates"]:
+        raise HTTPException(403, "The admin has turned off posting updates for your account.")
+    return manager
+
+
+@router.get("/updates")
+def posted_updates(manager: dict = Depends(poster), db: Connection = Depends(get_db)):
+    """Updates this member posted, plus the courses and audience counts for the composer."""
+    titles = course_titles(db)
+    items = db.execute(
+        f"SELECT {ANNOUNCEMENT_COLUMNS} FROM announcements a WHERE a.manager_id = %s ORDER BY a.created_at DESC",
+        (manager["id"],),
+    ).fetchall()
+    for a in items:
+        a["audience_label"] = audience_label(a, titles)
+    courses = db.execute("SELECT id, title FROM courses ORDER BY id").fetchall()
+    return {"items": items, "courses": courses, "audience": update_audience(db)}
+
+
+@router.post("/updates")
+def create_update(body: AnnouncementIn, manager: dict = Depends(poster), db: Connection = Depends(get_db)):
+    return {"ok": True, "id": insert_update(db, body, manager["id"])}
+
+
+@router.put("/updates/{announcement_id}")
+def save_update(
+    announcement_id: int, body: AnnouncementIn, manager: dict = Depends(poster), db: Connection = Depends(get_db)
+):
+    edit_update(db, announcement_id, body, manager["id"])
+    return {"ok": True}
+
+
+@router.delete("/updates/{announcement_id}")
+def delete_update(announcement_id: int, manager: dict = Depends(poster), db: Connection = Depends(get_db)):
+    cur = db.execute("DELETE FROM announcements WHERE id = %s AND manager_id = %s", (announcement_id, manager["id"]))
+    if cur.rowcount == 0:
+        raise HTTPException(404, "Announcement not found.")
     return {"ok": True}

@@ -7,6 +7,7 @@ const enrollStep = {};       // course id -> 1 (pay) | 2 (details) | 3 (call)
 const chosenSlot = {};       // course id -> selected QR slot
 const resend = {};           // course id -> true when re-opening checkout after sending details
 const shots = {};            // course id -> payment screenshot (data URL) picked on the details step
+const payMode = {};          // course id -> 'upi' (QR) | 'cash'
 let seenMarked = false;
 
 const VIEWS = { home: viewHome, courses: viewCourses, enroll: viewEnroll, updates: viewUpdates, profile: viewProfile };
@@ -38,7 +39,7 @@ function renderChrome() {
   const s = me.student;
   for (const id of ['sideAvatar', 'topAvatar']) document.getElementById(id).textContent = initials(s.name);
   document.getElementById('sideName').textContent = s.name;
-  document.getElementById('sideEmail').textContent = s.email;
+  document.getElementById('sideEmail').textContent = accountContact(s);
   const n = me.unread_announcements;
   const navUnread = document.getElementById('navUnread');
   navUnread.textContent = n; navUnread.hidden = !n;
@@ -139,9 +140,9 @@ function studentIdChip(s) {
     : '';
 }
 
-// How the team finds this student: the Student ID once they have one, otherwise the email.
+// How the team finds this student: the Student ID once they have one, otherwise the mobile or email.
 function studentRef(s) {
-  return s.student_code ? 'Student ID ' + s.student_code : s.email;
+  return s.student_code ? 'Student ID ' + s.student_code : accountContact(s);
 }
 
 function wireCopy(root = document) {
@@ -154,6 +155,9 @@ function viewHome() {
   const s = me.student;
   const act = me.courses.filter(c => ['active', 'scheduled'].includes(c.access.status));
   const attention = [];
+  if (!s.mobile) {
+    attention.push(['info', 'smartphone', 'Add your mobile number', 'Then you can also log in with your mobile number and password.', '#/profile', 'Add number']);
+  }
   for (const c of me.courses) {
     if (c.pending_claim && c.access.status !== 'active') {
       attention.push(['warn', 'hourglass', `Payment for ${c.title} is being verified`, 'Give us a quick call if you have not already.', `#/enroll/${c.id}`, 'View status']);
@@ -292,10 +296,28 @@ function wizardHead(step) {
   }).join('')}</div>`;
 }
 
+// UPI QR or cash, chosen at the top of the Pay step.
+function payModeTabs(c) {
+  const mode = payMode[c.id] || 'upi';
+  return `<div class="seg" role="tablist" aria-label="How are you paying?" style="margin-bottom:12px">${[['upi', 'smartphone', 'UPI / QR'], ['cash', 'wallet', 'Cash']].map(([m, ic, label]) =>
+    `<button type="button" role="tab" data-mode="${m}" class="${m === mode ? 'on' : ''}" aria-selected="${m === mode}">${icon(ic)} ${label}</button>`).join('')}</div>`;
+}
+
 function stepPay(c) {
   const methods = me.payment.methods;
+  if ((payMode[c.id] || 'upi') === 'cash') {
+    return `${payModeTabs(c)}<div class="card pad-lg">
+      <div><div class="muted small">Amount to pay in cash</div><div class="amount">${rupees(c.price)}</div></div>
+      <ol class="steps-list">
+        <li>Hand ${rupees(c.price)} in cash to the G-CATION office or team.</li>
+        <li>No UTR or screenshot is needed for cash.</li>
+        <li>Share your details on the next step so the admin can match your payment.</li>
+      </ol>
+      <button class="btn primary lg block" data-next="2">I have paid in cash ${icon('arrowRight')}</button>
+    </div>`;
+  }
   if (!methods.length) {
-    return `<div class="card"><div class="notice warn">${icon('alert')}<div>Payment details are being updated. Please call us at <b>${esc(me.payment.contact_phone || 'the G-CATION office')}</b> to pay.</div></div></div>`;
+    return `${payModeTabs(c)}<div class="card"><div class="notice warn">${icon('alert')}<div>UPI payment details are being updated. Pay in cash, or call us at <b>${esc(me.payment.contact_phone || 'the G-CATION office')}</b> to pay.</div></div></div>`;
   }
   const slot = methods.some(m => m.slot === chosenSlot[c.id]) ? chosenSlot[c.id] : methods[0].slot;
   chosenSlot[c.id] = slot;
@@ -306,9 +328,9 @@ function stepPay(c) {
     : `data-auth-src="/api/me/qr/${c.id}.svg?slot=${m.slot}&v=${m.updated_at}"`;
   const upiLink = m.upi_id
     ? `upi://pay?pa=${encodeURIComponent(m.upi_id).replace('%40', '@')}&pn=${encodeURIComponent(m.payee_name || 'G-CATION')}`
-      + `&am=${Number(c.price).toFixed(2)}&cu=INR&tn=${encodeURIComponent('GCATION ' + (me.student.student_code || me.student.email))}`
+      + `&am=${Number(c.price).toFixed(2)}&cu=INR&tn=${encodeURIComponent('GCATION ' + (me.student.student_code || me.student.mobile || me.student.email))}`
     : '';
-  return `<div class="card pad-lg">
+  return `${payModeTabs(c)}<div class="card pad-lg">
     <div class="pay-card">
       <div class="qr-col stack">
         ${methods.length > 1 ? `<div class="seg" role="tablist">${methods.map(x =>
@@ -340,6 +362,32 @@ const PAY_APPS = ['Google Pay', 'PhonePe', 'Paytm', 'BHIM UPI', 'Amazon Pay', 'C
 function stepDetails(c) {
   const methods = me.payment.methods;
   const slot = chosenSlot[c.id] || (methods[0] && methods[0].slot) || '';
+  const cash = payMode[c.id] === 'cash';
+  const optional = c.referral_required ? '' : ' <span class="faint">(optional)</span>';
+  const referral = `<div class="row2">
+      <div class="field"><label for="cRefBy">Referred by${optional}</label><input id="cRefBy" name="referred_by" maxlength="80" placeholder="Name of the person who told you about us" ${c.referral_required ? 'required' : ''}></div>
+      <div class="field"><label for="cRefId">Referral ID${optional}</label><input id="cRefId" name="referral_id" maxlength="20" placeholder="e.g. GCM001" autocomplete="off" spellcheck="false" style="text-transform:uppercase" ${c.referral_required ? 'required' : ''}></div>
+    </div>`;
+  if (cash) {
+    return `<form class="card pad-lg" id="claimForm" novalidate>
+    <h3 class="card-title">${icon('wallet')} Share your cash payment details</h3>
+    <p class="card-sub">This helps us match your cash payment. These details also go on your receipt.</p>
+    <div class="row2">
+      <div class="field"><label for="cPayer">Name of the person who paid</label><input id="cPayer" name="payer_name" maxlength="80" value="${esc(me.student.name)}"></div>
+      <div class="field"><label for="cAge">Your age</label><input id="cAge" name="age" type="number" min="5" max="100" inputmode="numeric" required></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="cAmount">Amount paid (₹)</label><input id="cAmount" name="amount" type="number" min="0" step="0.01" value="${Number(c.price)}"></div>
+      <div class="field"><label for="cDate">Date paid</label><input id="cDate" name="paid_on" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
+    </div>
+    ${referral}
+    <div class="error"></div>
+    <div class="row between" style="margin-top:8px">
+      <button type="button" class="btn ghost" data-next="1">${icon('chevron')} Back</button>
+      <button type="submit" class="btn primary lg">${icon('send')} Send details</button>
+    </div>
+  </form>`;
+  }
   return `<form class="card pad-lg" id="claimForm" novalidate>
     <h3 class="card-title">${icon('send')} Share your payment details</h3>
     <p class="card-sub">This helps us find your payment in seconds. These details also go on your receipt.</p>
@@ -361,10 +409,7 @@ function stepDetails(c) {
       <div class="field"><label for="cRef">UTR / transaction ID</label><input id="cRef" name="reference" maxlength="80" placeholder="12-digit number from your UPI app" required></div>
       <div class="field"><label for="cAge">Your age</label><input id="cAge" name="age" type="number" min="5" max="100" inputmode="numeric" required></div>
     </div>
-    <div class="row2">
-      <div class="field"><label for="cRefBy">Referred by <span class="faint">(optional)</span></label><input id="cRefBy" name="referred_by" maxlength="80" placeholder="Name of the person who told you about us"></div>
-      <div class="field"><label for="cRefId">Referral ID <span class="faint">(optional)</span></label><input id="cRefId" name="referral_id" maxlength="20" placeholder="e.g. GCM001" autocomplete="off" spellcheck="false" style="text-transform:uppercase"></div>
-    </div>
+    ${referral}
     <div class="field"><span class="label">Payment screenshot</span>
       <label class="dropzone" id="shotDrop">${shotLabel(shots[c.id])}<input type="file" accept="image/*" hidden id="shotInput"></label>
       <small>The "payment successful" screen from your UPI app. It is deleted once your payment is verified.</small></div>
@@ -387,7 +432,7 @@ function stepCall(c) {
     <div class="center" style="margin-bottom:18px">
       <div class="empty-state" style="padding:4px 0 0"><div class="ico" style="background:var(--green-bg);color:var(--green)">${icon('checkCircle', 'xl')}</div></div>
       <h3 style="margin:0 0 4px;font-size:1.3rem">Almost done!</h3>
-      <p class="muted" style="margin:0">Call or email us${me.student.student_code ? ` with your Student ID <b class="mono">${esc(me.student.student_code)}</b>` : ` from your registered email <b>${esc(me.student.email)}</b>`}. We will unlock your course right after.</p>
+      <p class="muted" style="margin:0">Call or email us${me.student.student_code ? ` with your Student ID <b class="mono">${esc(me.student.student_code)}</b>` : ` from your registered number <b>${esc(accountContact(me.student))}</b>`}. We will unlock your course right after.</p>
     </div>
     ${callBox(c)}
     <div class="row between" style="margin-top:18px">
@@ -400,7 +445,7 @@ function stepCall(c) {
 function callBox(c) {
   const s = me.student;
   const subject = `Payment for ${c.title} - ${studentRef(s)}`;
-  const body = `Hi G-CATION,\n\nI have paid ${rupees(c.price)} for "${c.title}".\n${s.student_code ? `Student ID: ${s.student_code}\n` : ''}Name: ${s.name}\nEmail: ${s.email}\n\nPlease verify my payment.`;
+  const body = `Hi G-CATION,\n\nI have paid ${rupees(c.price)} for "${c.title}".\n${s.student_code ? `Student ID: ${s.student_code}\n` : ''}Name: ${s.name}\n${s.email ? 'Email: ' + s.email + '\n' : ''}Phone: ${s.phone}\n\nPlease verify my payment.`;
   return `<div class="call-box">
     <div class="tiny muted strong">G-CATION SUPPORT</div>
     ${supportPhones(me.payment.contact_phone).map(p => `<div class="call-line">
@@ -429,9 +474,9 @@ function statusPanel(c) {
       <div class="card">
         <h3 class="card-title">${icon('list')} What you sent</h3>
         <dl class="sent-list" style="margin-top:12px">
-          ${method ? `<dt>Paid to</dt><dd>${esc(method.label)}</dd>` : ''}
+          ${p.pay_mode === 'cash' ? '<dt>Paid by</dt><dd>Cash</dd>' : method ? `<dt>Paid to</dt><dd>${esc(method.label)}</dd>` : ''}
           ${p.payer_name ? `<dt>Payer</dt><dd>${esc(p.payer_name)}</dd>` : ''}
-          ${p.method ? `<dt>Using</dt><dd>${esc(p.method)}</dd>` : ''}
+          ${p.method && p.pay_mode !== 'cash' ? `<dt>Using</dt><dd>${esc(p.method)}</dd>` : ''}
           ${p.amount != null ? `<dt>Amount</dt><dd>${rupees(p.amount)}</dd>` : ''}
           ${p.paid_on ? `<dt>Date</dt><dd>${esc(p.paid_on)}</dd>` : ''}
           ${p.reference ? `<dt>UTR</dt><dd class="mono">${esc(p.reference)}</dd>` : ''}
@@ -450,13 +495,15 @@ function statusPanel(c) {
 function wireCheckout(c) {
   const view = document.getElementById('view');
   wireCopy(view);
-  view.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => { chosenSlot[c.id] = b.dataset.slot; viewEnroll(c.id); }));
+  view.querySelectorAll('.seg button[data-slot]').forEach(b => b.addEventListener('click', () => { chosenSlot[c.id] = b.dataset.slot; viewEnroll(c.id); }));
+  view.querySelectorAll('.seg button[data-mode]').forEach(b => b.addEventListener('click', () => { payMode[c.id] = b.dataset.mode; viewEnroll(c.id); }));
   view.querySelectorAll('[data-next]').forEach(b => b.addEventListener('click', () => { enrollStep[c.id] = Number(b.dataset.next); viewEnroll(c.id); }));
   const again = view.querySelector('[data-resend]');
   if (again) again.addEventListener('click', () => { resend[c.id] = true; enrollStep[c.id] = 1; viewEnroll(c.id); });
   const form = document.getElementById('claimForm');
   if (form) {
     form.addEventListener('submit', e => sendClaim(e, c));
+    if (payMode[c.id] === 'cash') return;
     form.method.addEventListener('change', () => {
       const other = form.method.value === 'other';
       document.getElementById('cOtherWrap').hidden = !other;
@@ -488,23 +535,26 @@ function wireShot(c, form) {
 async function sendClaim(e, c) {
   e.preventDefault();
   const f = e.target, err = f.querySelector('.error');
+  const cash = payMode[c.id] === 'cash';
   const slotInput = f.querySelector('[name=qr_slot]:checked') || f.querySelector('[name=qr_slot]');
   const amount = f.amount.value.trim();
-  const method = f.method.value === 'other' ? f.method_other.value.trim() : f.method.value;
+  const method = cash ? 'Cash' : f.method.value === 'other' ? f.method_other.value.trim() : f.method.value;
   const age = Number(f.age.value);
   showError(err, '');
   if (!method) return showError(err, 'Choose the app you paid with.');
-  const reference = f.reference.value.trim(), referralId = f.referral_id.value.trim().toUpperCase();
-  if (reference.length < 6) return showError(err, 'Enter the UTR / transaction ID from your payment app.');
+  const reference = cash ? '' : f.reference.value.trim();
+  const referredBy = f.referred_by.value.trim(), referralId = f.referral_id.value.trim().toUpperCase();
+  if (!cash && reference.length < 6) return showError(err, 'Enter the UTR / transaction ID from your payment app.');
   if (!Number.isInteger(age) || age < 5 || age > 100) return showError(err, 'Enter your age (5 to 100).');
-  if (referralId && !/^(GCM)?\s*\d+$/.test(referralId)) return showError(err, 'Referral ID looks like GCM001. Check it, or leave it empty.');
-  if (!shots[c.id]) return showError(err, 'Upload the screenshot of your payment.');
+  if (c.referral_required && (!referredBy || !referralId)) return showError(err, 'This course needs the name and Referral ID of the person who referred you.');
+  if (referralId && !/^(GCM)?\s*\d+$/.test(referralId)) return showError(err, `Referral ID looks like GCM001. Check it${c.referral_required ? '' : ', or leave it empty'}.`);
+  if (!cash && !shots[c.id]) return showError(err, 'Upload the screenshot of your payment.');
   try {
     await withLoading(f.querySelector('button[type=submit]'), () => api('/api/me/claims', { method: 'POST', body: {
-      course_id: c.id, qr_slot: slotInput ? slotInput.value : '',
-      payer_name: f.payer_name.value, method, age, referred_by: f.referred_by.value, referral_id: referralId,
+      course_id: c.id, pay_mode: cash ? 'cash' : 'upi', qr_slot: !cash && slotInput ? slotInput.value : '',
+      payer_name: f.payer_name.value, method, age, referred_by: referredBy, referral_id: referralId,
       amount: amount === '' ? null : Number(amount),
-      paid_on: f.paid_on.value, reference, screenshot: shots[c.id],
+      paid_on: f.paid_on.value, reference, screenshot: cash ? '' : shots[c.id],
     }}));
     delete shots[c.id];
     showToast('Details sent. Now give us a quick call.', 'success');
@@ -591,7 +641,7 @@ function viewProfile() {
         <div class="card pad-lg">
           <div class="row" style="gap:16px">
             <span class="avatar-sm avatar-lg">${esc(initials(s.name))}</span>
-            <div style="min-width:0"><h2 style="margin:0;font-size:1.25rem">${esc(s.name)}</h2><div class="muted small">${esc(s.email)}</div>
+            <div style="min-width:0"><h2 style="margin:0;font-size:1.25rem">${esc(s.name)}</h2><div class="muted small">${esc(accountContact(s))}</div>
               <div class="tiny faint">Member since ${fmtDate(s.created_at)}</div></div>
           </div>
           <div class="row" style="margin-top:16px">${studentIdChip(s) || '<span class="tiny muted">Your Student ID is given when your first payment is verified.</span>'}</div>
@@ -599,11 +649,12 @@ function viewProfile() {
         <form class="card pad-lg" id="profileForm" novalidate>
           <h3 class="card-title">${icon('user')} Personal details</h3>
           <div class="field"><label for="pName">Full name</label><input id="pName" name="name" maxlength="80" value="${esc(s.name)}" required></div>
-          <div class="field"><label for="pPhone">Phone number</label><input id="pPhone" name="phone" type="tel" maxlength="20" value="${esc(s.phone)}"></div>
-          <div class="field"><label>Email</label><input value="${esc(s.email)}" disabled><small>To change your email, contact the G-CATION team.</small></div>
+          <div class="field"><label for="pPhone">Contact phone</label><input id="pPhone" name="phone" type="tel" maxlength="20" value="${esc(s.phone)}"><small>The number the team calls you on.</small></div>
+          ${s.email ? `<div class="field"><label>Email${s.google ? ' (Google)' : ''}</label><input value="${esc(s.email)}" disabled><small>To change your email, contact the G-CATION team.</small></div>` : ''}
           <div class="error"></div>
           <button class="btn primary" type="submit">${icon('check')} Save changes</button>
         </form>
+        ${mobileCard(s)}
       </div>
       <div class="stack">
         <div class="card pad-lg" id="receipts">
@@ -614,20 +665,13 @@ function viewProfile() {
               ${receiptButton(r, 'outline', 'PDF')}</div>`).join('')
             : '<p class="muted small" style="margin:0">No receipts yet. Your first one appears here after your payment is verified.</p>'}
         </div>
-        <form class="card pad-lg" id="passwordForm" novalidate>
-          <h3 class="card-title">${icon('key')} Change password</h3>
-          <p class="card-sub">You stay logged in here. Other devices are logged out.</p>
-          <div class="field"><label for="pCur">Current password</label><input id="pCur" name="current_password" type="password" autocomplete="current-password" required></div>
-          <div class="field"><label for="pNew">New password</label><input id="pNew" name="new_password" type="password" autocomplete="new-password" minlength="8" required><small>At least 8 characters.</small></div>
-          <div class="error"></div>
-          <button class="btn primary" type="submit">${icon('key')} Update password</button>
-        </form>
+        ${passwordCard(s)}
         <div class="card pad-lg">
           <h3 class="card-title">${icon('phone')} Need help?</h3>
           <p class="card-sub">Questions about payment, classes or your account.</p>
           ${supportPhones(me.payment.contact_phone).map(p => `<div class="row" style="margin-bottom:8px">
             <a class="btn outline" href="${esc(telHref(p))}">${icon('phone')} ${esc(p)}</a></div>`).join('')}
-          <div class="row">${mailLink(`Help needed - ${studentRef(s)}`, `Hi G-CATION,\n\nI need help with: \n\n${s.student_code ? `Student ID: ${s.student_code}\n` : ''}Name: ${s.name}\nEmail: ${s.email}`)}</div>
+          <div class="row">${mailLink(`Help needed - ${studentRef(s)}`, `Hi G-CATION,\n\nI need help with: \n\n${s.student_code ? `Student ID: ${s.student_code}\n` : ''}Name: ${s.name}\n${s.email ? 'Email: ' + s.email + '\n' : ''}Phone: ${s.phone}`)}</div>
         </div>
         <button class="btn danger block page-logout" id="logoutBtn2">${icon('logout')} Log out</button>
       </div>
@@ -651,20 +695,8 @@ function viewProfile() {
     } catch (ex) { showError(err, ex.message); }
   });
 
-  const pw = document.getElementById('passwordForm');
-  pw.addEventListener('submit', async e => {
-    e.preventDefault();
-    const err = pw.querySelector('.error');
-    if (pw.new_password.value.length < 8) { showError(err, 'New password must be at least 8 characters.'); return; }
-    showError(err, '');
-    try {
-      await withLoading(pw.querySelector('button[type=submit]'), () => api('/api/me/password', { method: 'POST', body: {
-        current_password: pw.current_password.value, new_password: pw.new_password.value,
-      }}));
-      pw.reset();
-      showToast('Password updated.', 'success');
-    } catch (ex) { showError(err, ex.message); }
-  });
+  wirePasswordCard('/api/me/password', refresh);
+  wireMobileCard('student', refresh);
 }
 
 // ---------- Boot ----------

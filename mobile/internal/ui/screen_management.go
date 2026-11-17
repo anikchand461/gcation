@@ -13,9 +13,9 @@ import (
 	"gcation/mobile/internal/api"
 )
 
-// The management team side: Home, Courses, Updates and Profile. Members see the courses and
-// prices and the updates the admin sends the team, and share their Management ID with students;
-// they cannot enroll.
+// The management team side: Home, Courses, Updates and Profile, plus Post while the admin lets
+// the member post updates. Members see the courses and prices and the updates the admin sends the
+// team, and share their Management ID with students; they cannot enroll.
 
 type mgmtTab int
 
@@ -24,13 +24,15 @@ const (
 	mgmtCourses
 	mgmtUpdates
 	mgmtProfile
+	mgmtPost // only while the admin lets this member post updates
 )
 
 type mgmtState struct {
 	tab     mgmtTab
-	nav     [4]widget.Clickable
+	nav     [5]widget.Clickable
 	me      *api.ManagerMe
 	updates *api.Updates
+	compose composer // posting updates, while allowed
 	loading bool
 	err     string
 
@@ -41,6 +43,7 @@ type mgmtState struct {
 
 	retry, theme, copyID, copyID2, viewCourses, allCourses, changePw, logout widget.Clickable
 	cur, next                                                                *field
+	mob                                                                      mobileForm
 	savingPw                                                                 bool
 	pwErr                                                                    string
 }
@@ -55,6 +58,8 @@ func (a *App) startManagementState() {
 		cur:  newField("Current password", "", true, key.HintAny),
 		next: newField("New password", "At least 8 characters", true, key.HintAny),
 	}
+	a.mgmt.compose.init(api.ManagerUpdates)
+	a.mgmt.mob.init()
 	a.screen = scrMain
 }
 
@@ -70,6 +75,14 @@ func (a *App) mgmtReload() {
 		if err == nil {
 			upd, err = a.api.ManagerUpdates()
 		}
+		var (
+			posted  []api.Announcement
+			courses []api.UpdateCourse
+			aud     map[string]int
+		)
+		if err == nil && me.Manager.CanPostUpdates {
+			posted, courses, aud, err = a.api.PostedUpdates(api.ManagerUpdates)
+		}
 		return func() {
 			m.loading = false
 			if errors.Is(err, api.ErrUnauthorized) {
@@ -82,10 +95,39 @@ func (a *App) mgmtReload() {
 				return
 			}
 			m.err, m.me, m.updates = "", me, upd
+			m.compose.anns, m.compose.courses, m.compose.audience = posted, courses, aud
+			if !me.Manager.CanPostUpdates && m.tab == mgmtPost {
+				m.tab = mgmtHome // the admin turned posting off
+			}
 			team := "Management team"
 			for i := range upd.Items {
 				upd.Items[i].CourseTitle = &team // shown on each card in place of a course
 			}
+		}
+	})
+}
+
+// managerDo runs a change to the member's posted updates, then reloads and shows a message.
+func (a *App) managerDo(work func() error, okMsg string, after func()) {
+	a.async(func() func() {
+		err := work()
+		return func() {
+			if errors.Is(err, api.ErrUnauthorized) {
+				a.signedOut("Please log in again.")
+				a.auth.mgmt = true
+				return
+			}
+			if err != nil {
+				a.toast(err.Error(), true)
+			} else {
+				if okMsg != "" {
+					a.toast(okMsg, false)
+				}
+				if after != nil {
+					after()
+				}
+			}
+			a.mgmtReload() // also picks up posting being turned off
 		}
 	})
 }
@@ -123,7 +165,7 @@ func (a *App) layoutManagement(gtx C) D {
 	return a.safeArea(gtx, func(gtx C) D {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx C) D {
-				title := [...]string{"", "Courses", "Updates", "Profile"}[m.tab]
+				title := [...]string{"", "Courses", "Updates", "Profile", "Post update"}[m.tab]
 				unread := 0
 				if m.me != nil {
 					unread = m.me.Unread
@@ -141,13 +183,20 @@ func (a *App) layoutManagement(gtx C) D {
 					return a.mgmtUpdatesPage(gtx)
 				case mgmtProfile:
 					return a.mgmtProfilePage(gtx)
+				case mgmtPost:
+					return a.layoutComposer(gtx, &m.compose, "mgmt4",
+						"The admin has let you post updates. Share class links, the community group or instructions with the team or with paid students.",
+						a.managerDo)
 				}
 				return a.mgmtHomePage(gtx)
 			}),
 			layout.Rigid(func(gtx C) D {
 				unread := m.me != nil && m.me.Unread > 0
 				items := []navItem{{icHome, "Home", false}, {icSchool, "Courses", false}, {icMegaphone, "Updates", unread}, {icPerson, "Profile", false}}
-				return a.navBar(gtx, items, int(m.tab), m.nav[:])
+				if m.me != nil && m.me.Manager.CanPostUpdates {
+					items = append(items, navItem{icSend, "Post", false})
+				}
+				return a.navBar(gtx, items, int(m.tab), m.nav[:len(items)])
 			}),
 		)
 	})
@@ -240,6 +289,24 @@ func (a *App) mgmtHomePage(gtx C) D {
 			})
 		},
 		func(gtx C) D { return a.th.sectionTitle(gtx, "How referrals work", nil) },
+	}
+	if mg := m.me.Manager; mg.Mobile == nil {
+		if a.clk("mgmt.addMobile").Clicked(gtx) {
+			m.tab = mgmtProfile
+		}
+		items = append(items[:2], append([]layout.Widget{vspace(12), func(gtx C) D {
+			return a.th.notice(gtx, icCall, toneBlue, func(gtx C) D {
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Flexed(1, func(gtx C) D {
+						return a.th.label(gtx, "Add your mobile number to also log in with it and your password.", textOpt{size: 13, color: a.th.P.Blue})
+					}),
+					layout.Rigid(hspace(8)),
+					layout.Rigid(func(gtx C) D {
+						return a.th.button(gtx, a.clk("mgmt.addMobile"), "Add", btnOpt{small: true})
+					}),
+				)
+			})
+		}}, items[2:]...)...)
 	}
 	for i, st := range steps {
 		ic, title, text := st[0].(*widget.Icon), st[1].(string), st[2].(string)
@@ -406,7 +473,7 @@ func (a *App) mgmtProfilePage(gtx C) D {
 		a.mgmtChangePassword()
 	}
 	if m.logout.Clicked(gtx) {
-		a.confirm("Log out?", "You will need your email and password to log in again.", "Log out", true, a.mgmtLogout)
+		a.confirm("Log out?", "You will need your mobile number and password, or Google, to log in again.", "Log out", true, a.mgmtLogout)
 	}
 	items := []layout.Widget{
 		vspace(6),
@@ -422,7 +489,7 @@ func (a *App) mgmtProfilePage(gtx C) D {
 							layout.Flexed(1, func(gtx C) D {
 								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 									layout.Rigid(func(gtx C) D { return a.th.label(gtx, mg.Name, textOpt{size: 18, weight: font.Bold}) }),
-									layout.Rigid(func(gtx C) D { return a.th.muted(gtx, mg.Email, 13.5) }),
+									layout.Rigid(func(gtx C) D { return a.th.muted(gtx, contactText(mg.SignIn, mg.Email, mg.Phone), 13.5) }),
 									layout.Rigid(func(gtx C) D {
 										return a.th.label(gtx, "Team member since "+fmtDate(mg.CreatedAt), textOpt{size: 12, color: a.th.P.Faint})
 									}),
@@ -462,23 +529,10 @@ func (a *App) mgmtProfilePage(gtx C) D {
 			})
 		},
 		vspace(14),
+		func(gtx C) D { return a.mobileCard(gtx, &m.mob, api.AsManagement, mg.MobileText(), a.mgmtReload) },
+		vspace(14),
 		func(gtx C) D {
-			return a.th.card(gtx, 18, func(gtx C) D {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx C) D { return a.cardTitle(gtx, icKey, "Change password") }),
-					layout.Rigid(vspace(4)),
-					layout.Rigid(func(gtx C) D { return a.th.muted(gtx, "You stay logged in here. Other devices are logged out.", 12.5) }),
-					layout.Rigid(vspace(12)),
-					layout.Rigid(func(gtx C) D { return a.th.field(gtx, m.cur) }),
-					layout.Rigid(vspace(12)),
-					layout.Rigid(func(gtx C) D { return a.th.field(gtx, m.next) }),
-					layout.Rigid(func(gtx C) D { return a.errLine(gtx, m.pwErr) }),
-					layout.Rigid(vspace(14)),
-					layout.Rigid(func(gtx C) D {
-						return a.th.button(gtx, &m.changePw, "Update password", btnOpt{full: true, icon: icKey, busy: m.savingPw})
-					}),
-				)
-			})
+			return a.passwordCard(gtx, mg.HasPassword, m.cur, m.next, &m.changePw, m.savingPw, m.pwErr)
 		},
 		vspace(16),
 		func(gtx C) D {
@@ -511,7 +565,8 @@ func (a *App) mgmtChangePassword() {
 			}
 			m.cur.Ed.SetText("")
 			m.next.Ed.SetText("")
-			a.toast("Password updated.", false)
+			m.me.Manager.HasPassword = true
+			a.toast("Password saved.", false)
 		}
 	})
 }

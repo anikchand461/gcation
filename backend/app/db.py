@@ -150,6 +150,42 @@ UPDATE announcements SET to_all_students = (course_id IS NULL),
 -- When a management member last opened Updates (for the unread count).
 ALTER TABLE managers ADD COLUMN IF NOT EXISTS announcements_seen_at BIGINT NOT NULL DEFAULT 0;
 
+-- How the student paid: 'upi' (QR, with UTR and screenshot) or 'cash' (no UTR or screenshot).
+ALTER TABLE payment_claims ADD COLUMN IF NOT EXISTS pay_mode TEXT NOT NULL DEFAULT 'upi' CHECK (pay_mode IN ('upi', 'cash'));
+-- When set, students must give "Referred by" and a Referral ID to pay for the course.
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS referral_required BOOLEAN NOT NULL DEFAULT FALSE;
+-- The admin can let a management member post updates (e.g. while the admin is away), and turn it off again.
+ALTER TABLE managers ADD COLUMN IF NOT EXISTS can_post_updates BOOLEAN NOT NULL DEFAULT FALSE;
+-- The management member who posted an update (NULL = the admin).
+ALTER TABLE announcements ADD COLUMN IF NOT EXISTS manager_id BIGINT REFERENCES managers(id) ON DELETE SET NULL;
+
+-- Sign-in by mobile number (10 digits) and password, or by Google. Accounts made before mobile
+-- log-in can still use their email; Google links to an existing account by email.
+-- Students and management each have their own list of numbers.
+ALTER TABLE students ALTER COLUMN email DROP NOT NULL;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS mobile TEXT UNIQUE;
+ALTER TABLE students ADD COLUMN IF NOT EXISTS google_sub TEXT UNIQUE;
+ALTER TABLE managers ALTER COLUMN email DROP NOT NULL;
+ALTER TABLE managers ADD COLUMN IF NOT EXISTS mobile TEXT UNIQUE;
+ALTER TABLE managers ADD COLUMN IF NOT EXISTS google_sub TEXT UNIQUE;
+
+-- Google sign-in from the Android app: the app opens the browser, Google sends the browser back to
+-- the API, and the app then collects the login with its secret code (only a hash of it is kept).
+CREATE TABLE IF NOT EXISTS google_logins (
+    state      TEXT PRIMARY KEY,
+    app_code   TEXT NOT NULL UNIQUE,
+    role       TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'pending',  -- pending, ok, need_details, error
+    account_id BIGINT,
+    detail     TEXT NOT NULL DEFAULT '',
+    created_at BIGINT NOT NULL
+);
+-- A new person must add their mobile (and, for management, the referral code) before the account
+-- is made; until then the Google details wait here.
+ALTER TABLE google_logins ADD COLUMN IF NOT EXISTS google_sub TEXT NOT NULL DEFAULT '';
+ALTER TABLE google_logins ADD COLUMN IF NOT EXISTS google_email TEXT NOT NULL DEFAULT '';
+ALTER TABLE google_logins ADD COLUMN IF NOT EXISTS google_name TEXT NOT NULL DEFAULT '';
+
 -- Site settings edited from the admin dashboard (e.g. the support phone number).
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
@@ -194,6 +230,8 @@ def init_db() -> None:
         if not conn.execute("SELECT 1 FROM admin_account").fetchone():
             set_admin_from_env(conn)
         number_paid_students(conn)
+        for table in ("students", "managers"):
+            mobiles_from_phones(conn, table)
 
 
 # Serialises Student ID numbering, so two approvals at once never get the same number.
@@ -216,6 +254,23 @@ def number_paid_students(conn) -> None:
             "UPDATE students s SET student_no = (SELECT COALESCE(MAX(student_no), 0) FROM students) + todo.n "
             "FROM todo WHERE s.id = todo.student_id"
         )
+
+
+def mobiles_from_phones(conn, table: str) -> None:
+    """Lets accounts made before mobile log-in log in with the phone number they gave.
+
+    The number is used when it is a valid 10-digit Indian mobile (+91 / 0 prefixes allowed) that no
+    other account in the table has. After the first run this finds nothing to do.
+    """
+    conn.execute(
+        f"WITH d AS (SELECT id, regexp_replace(phone, '\\D', '', 'g') AS n FROM {table} WHERE mobile IS NULL), "
+        "m AS (SELECT id, CASE WHEN length(n) = 12 AND n LIKE '91%' THEN right(n, 10) "
+        "  WHEN length(n) = 11 AND n LIKE '0%' THEN right(n, 10) ELSE n END AS mobile FROM d), "
+        "ok AS (SELECT id, mobile FROM m WHERE mobile ~ '^[6-9][0-9]{9}$'), "
+        "single AS (SELECT mobile FROM ok GROUP BY mobile HAVING COUNT(*) = 1) "
+        f"UPDATE {table} t SET mobile = ok.mobile FROM ok JOIN single USING (mobile) "
+        f"WHERE t.id = ok.id AND NOT EXISTS (SELECT 1 FROM {table} x WHERE x.mobile = ok.mobile)"
+    )
 
 
 def set_admin_from_env(conn) -> None:

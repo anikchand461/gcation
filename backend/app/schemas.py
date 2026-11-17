@@ -18,29 +18,73 @@ def _https_or_empty(v: str, what: str) -> str:
     return v
 
 
+Role = Literal["student", "management"]  # who may sign up or log in themselves (never the admin)
+
+
+MOBILE_RE = re.compile(r"^[6-9]\d{9}$")
+
+
+def clean_mobile(v: str) -> str:
+    """'+91 98765-43210', '098765 43210' or '9876543210' -> '9876543210'."""
+    digits = re.sub(r"\D", "", v)
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
+    if not MOBILE_RE.match(digits):
+        raise ValueError("Enter a valid 10-digit mobile number.")
+    return digits
+
+
 class RegisterIn(BaseModel):
+    """Register with a mobile number and password (Google sign-in is the other way)."""
     name: str = Field(min_length=1, max_length=80)
-    email: str = Field(max_length=120)
-    phone: str = Field(default="", max_length=20)
+    mobile: str = Field(default="", max_length=20)
     password: str = Field(min_length=8, max_length=128)
     client: Client = "web"
+    email: str = Field(default="", max_length=120)  # sent only by app versions from before mobile log-in
 
-    @field_validator("name", "phone")
+    @field_validator("name")
     @classmethod
     def strip(cls, v: str) -> str:
         return v.strip()
 
-    @field_validator("email")
-    @classmethod
-    def valid_email(cls, v: str) -> str:
-        v = v.strip().lower()
-        if not EMAIL_RE.match(v):
-            raise ValueError("Enter a valid email address.")
-        return v
+    @model_validator(mode="after")
+    def check(self):
+        if not self.mobile and self.email:
+            raise ValueError("Please update the G-CATION app to register.")
+        self.mobile = clean_mobile(self.mobile)
+        return self
 
 
 class ManagerRegisterIn(RegisterIn):
     invite_code: str = Field(max_length=60)  # the code the admin gives the management team
+
+
+class MobileIn(BaseModel):
+    """Sets or changes the mobile number the logged-in account logs in with."""
+    mobile: str = Field(max_length=20)
+
+    @field_validator("mobile")
+    @classmethod
+    def valid(cls, v: str) -> str:
+        return clean_mobile(v)
+
+
+class GoogleIn(BaseModel):
+    credential: str = Field(min_length=20, max_length=5000)  # the ID token from Google's sign-in button
+    role: Role = "student"
+    # Only for people new to G-CATION: their mobile number, and for management the referral code.
+    mobile: str = Field(default="", max_length=20)
+    invite_code: str = Field(default="", max_length=60)
+    client: Client = "web"
+
+
+class GoogleCompleteIn(BaseModel):
+    """App: finishes a Google sign-up that stopped for the mobile number (and referral code)."""
+    code: str = Field(min_length=32, max_length=128)
+    mobile: str = Field(max_length=20)
+    invite_code: str = Field(default="", max_length=60)
 
 
 class InviteCodeIn(BaseModel):
@@ -56,7 +100,8 @@ class InviteCodeIn(BaseModel):
 
 
 class LoginIn(BaseModel):
-    email: str = Field(max_length=120)
+    mobile: str = Field(default="", max_length=120)  # a mobile number, or the email of an older account
+    email: str = Field(default="", max_length=120)  # what app versions from before mobile log-in send
     password: str = Field(max_length=128)
     client: Client = "web"
 
@@ -111,18 +156,18 @@ class ProfileIn(BaseModel):
 
 
 class PasswordChangeIn(BaseModel):
-    current_password: str = Field(max_length=128)
+    current_password: str = Field(default="", max_length=128)  # not needed for Google accounts with no password yet
     new_password: str = Field(min_length=8, max_length=128)
 
 
 class StudentEditIn(ProfileIn):
-    email: str = Field(max_length=120)
+    email: str = Field(default="", max_length=120)  # optional: accounts registered with a mobile number have none
 
     @field_validator("email")
     @classmethod
     def valid_email(cls, v: str) -> str:
         v = v.strip().lower()
-        if not EMAIL_RE.match(v):
+        if v and not EMAIL_RE.match(v):
             raise ValueError("Enter a valid email address.")
         return v
 
@@ -131,8 +176,14 @@ class PasswordResetIn(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class UpdatesAccessIn(BaseModel):
+    enabled: bool
+
+
 class ClaimIn(BaseModel):
     course_id: int
+    # "cash" payments have no QR, UTR or screenshot.
+    pay_mode: Literal["upi", "cash"] = "upi"
     qr_slot: QrSlot | Literal[""] = ""
     payer_name: str = Field(default="", max_length=80)
     method: str = Field(default="", max_length=60)
@@ -151,12 +202,13 @@ class ClaimIn(BaseModel):
     def strip(cls, v: str) -> str:
         return v.strip()
 
-    @field_validator("reference")
-    @classmethod
-    def reference_given(cls, v: str) -> str:
-        if len(v) < 6:
+    @model_validator(mode="after")
+    def by_pay_mode(self):
+        if self.pay_mode == "cash":
+            self.qr_slot, self.method, self.reference, self.screenshot = "", "Cash", "", ""
+        elif len(self.reference) < 6:
             raise ValueError("Enter the UTR / transaction ID from your payment app.")
-        return v
+        return self
 
 
 class GrantIn(BaseModel):
@@ -186,6 +238,8 @@ class CourseIn(BaseModel):
         return "\n".join(lines)
     classroom_link: str = Field(default="", max_length=500)
     is_active: bool = True
+    # Students must give "Referred by" and a Referral ID. None (older apps) keeps the current setting.
+    referral_required: bool | None = None
 
     @field_validator("classroom_link")
     @classmethod

@@ -32,34 +32,7 @@
       <a class="brand mobile-brand" href="/"><img class="logo" src="assets/logo-mark.png" alt="" width="36" height="36">G<span>-CATION</span></a>
       <div class="row" style="margin-left:auto;gap:8px"><button class="icon-btn theme-btn" type="button" data-theme-toggle></button><a class="btn ghost sm" href="/">← Home</a></div>
     </div>
-    <div class="card auth-box">
-      <span class="kicker" id="kicker"></span>
-      <h1 id="title">Welcome back</h1>
-      <p class="muted small" id="subtitle" style="margin:0">Log in to see courses and your Management ID.</p>
-
-      <div class="tabs" role="tablist">
-        <button class="tab on" id="tabLogin" type="button" role="tab" onclick="setMode('login')">Log in</button>
-        <button class="tab" id="tabRegister" type="button" role="tab" onclick="setMode('register')">Register</button>
-      </div>
-
-      <form id="loginForm" novalidate>
-        <div class="field"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="email" placeholder="you@gmail.com" required></div>
-        <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
-        <div class="error" id="lErr"></div>
-        <button class="btn primary block lg" type="submit" style="margin-top:6px">Log in</button>
-        <p class="muted small center" style="margin:14px 0 0">Forgot your password? Contact the G-CATION admin.</p>
-      </form>
-
-      <form id="registerForm" hidden novalidate>
-        <div class="field"><label for="rName">Full name</label><input id="rName" autocomplete="name" maxlength="80" placeholder="Your full name" required></div>
-        <div class="field"><label for="rEmail">Email</label><input id="rEmail" type="email" autocomplete="email" maxlength="120" placeholder="you@gmail.com" required></div>
-        <div class="field"><label for="rPhone">Phone number</label><input id="rPhone" type="tel" autocomplete="tel" maxlength="20" placeholder="10-digit mobile number" required></div>
-        <div class="field"><label for="rPass">Password</label><input id="rPass" type="password" autocomplete="new-password" minlength="8" required><small>At least 8 characters.</small></div>
-        <div class="field"><label for="rCode">Referral code</label><input id="rCode" maxlength="60" autocomplete="off" spellcheck="false" required><small>The code the G-CATION admin gave you.</small></div>
-        <div class="error" id="rErr"></div>
-        <button class="btn primary block lg" type="submit" style="margin-top:6px">Create management account</button>
-      </form>
-    </div>
+    <div class="card auth-box" id="authBox"></div>
     <p class="center tiny muted">Are you a student? <a href="login.html" style="color:var(--purple);font-weight:700">Student login</a></p>
   </main>
 </div>
@@ -67,70 +40,13 @@
 <script src="js/config.js"></script>
 <script src="js/common.js"></script>
 <script>
-document.getElementById('kicker').innerHTML = icon('shield') + ' Management team';
+const AUTH = { role: 'management', home: 'management.html' };
 document.getElementById('points').innerHTML = [
   'All courses with their prices',
   'Your own Management ID to share',
   'Students enter it as their Referral ID',
 ].map(t => `<li>${icon('checkCircle')} ${t}</li>`).join('');
-
-function setMode(mode) {
-  const reg = mode === 'register';
-  document.getElementById('loginForm').hidden = reg;
-  document.getElementById('registerForm').hidden = !reg;
-  document.getElementById('tabLogin').classList.toggle('on', !reg);
-  document.getElementById('tabRegister').classList.toggle('on', reg);
-  document.getElementById('title').textContent = reg ? 'Join the team' : 'Welcome back';
-  document.getElementById('subtitle').textContent = reg
-    ? 'You need the referral code from the G-CATION admin.'
-    : 'Log in to see courses and your Management ID.';
-  history.replaceState(null, '', reg ? '#register' : '#login');
-}
-setupPasswordToggles();
-setMode(location.hash === '#register' ? 'register' : 'login');
-
-api('/api/management/me').then(() => location.replace('management.html')).catch(() => {});
-
-function check(rules) {
-  for (const [ok, msg] of rules) if (!ok) return msg;
-  return '';
-}
-
-async function submit(form, errEl, path, body, problem) {
-  showError(errEl, problem);
-  if (problem) return;
-  try {
-    await withLoading(form.querySelector('button[type=submit]'), () => api(path, { method: 'POST', body: { ...body, client: 'app' } }));
-    location.href = 'management.html';
-  } catch (e) {
-    showError(errEl, e.message);
-  }
-}
-
-document.getElementById('loginForm').addEventListener('submit', e => {
-  e.preventDefault();
-  const email = document.getElementById('lEmail').value.trim(), password = document.getElementById('lPass').value;
-  submit(e.target, document.getElementById('lErr'), '/api/management/login', { email, password },
-    check([[email.includes('@'), 'Enter your email address.'], [password, 'Enter your password.']]));
-});
-
-document.getElementById('registerForm').addEventListener('submit', e => {
-  e.preventDefault();
-  const body = {
-    name: document.getElementById('rName').value.trim(),
-    email: document.getElementById('rEmail').value.trim(),
-    phone: document.getElementById('rPhone').value.trim(),
-    password: document.getElementById('rPass').value,
-    invite_code: document.getElementById('rCode').value.trim(),
-  };
-  submit(e.target, document.getElementById('rErr'), '/api/management/register', body, check([
-    [body.name, 'Enter your full name.'],
-    [/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(body.email), 'Enter a valid email address.'],
-    [body.phone.replace(/\D/g, '').length >= 10, 'Enter a valid phone number.'],
-    [body.password.length >= 8, 'Password must be at least 8 characters.'],
-    [body.invite_code, 'Enter the referral code from the G-CATION admin.'],
-  ]));
-});
 </script>
+<script src="js/auth.js"></script>
 </body>
 </html>

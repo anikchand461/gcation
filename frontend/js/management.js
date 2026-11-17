@@ -6,7 +6,7 @@ let updates = null; // /api/management/me/announcements response
 let seenMarked = false;
 let shownSeenAt = null; // keeps NEW tags while Updates stays open after it marked them read
 
-const VIEWS = { home: viewHome, courses: viewCourses, updates: viewUpdates, profile: viewProfile };
+const VIEWS = { home: viewHome, courses: viewCourses, updates: viewUpdates, post: viewPost, profile: viewProfile };
 
 // ---------- Data & router ----------
 
@@ -22,6 +22,9 @@ async function load() {
   for (const id of ['sideAvatar', 'topAvatar']) document.getElementById(id).textContent = initials(m.name);
   document.getElementById('sideName').textContent = m.name;
   document.getElementById('sideCode').textContent = 'Management ID ' + m.manager_code;
+  // "Post update" shows only while the admin lets this member post updates.
+  for (const id of ['navPost', 'tabPost']) document.getElementById(id).hidden = !m.can_post_updates;
+  document.querySelector('.tabbar').style.setProperty('--tabs', m.can_post_updates ? 5 : 4);
   renderUnread();
   return true;
 }
@@ -49,7 +52,8 @@ async function route() {
   VIEWS[name]();
   // Pick up new updates (and a revoked login) on every page switch.
   const before = JSON.stringify([data, updates]);
-  if (await load() && JSON.stringify([data, updates]) !== before && currentRoute().name === name && name !== 'profile') VIEWS[name]();
+  if (await load() && JSON.stringify([data, updates]) !== before && currentRoute().name === name && name !== 'profile' && name !== 'post') VIEWS[name]();
+  else if (name === 'post' && !data.manager.can_post_updates && currentRoute().name === 'post') viewPost();
 }
 
 // ---------- Shared pieces ----------
@@ -94,6 +98,9 @@ function viewHome() {
       <p>Share your Management ID with students. They enter it as the <b>Referral ID</b> when they pay.</p>
       <div class="row" style="margin-top:16px">${idChip(m)}<a class="btn white sm" href="#/courses">${icon('graduation')} View courses</a></div>
     </section>
+
+    ${m.mobile ? '' : `<div class="notice info" style="margin-top:18px;align-items:center">${icon('smartphone')}<div style="flex:1"><b>Add your mobile number.</b> Then you can also log in with your mobile number and password.</div>
+      <a class="btn primary sm" href="#/profile">Add number</a></div>`}
 
     <div style="margin-top:26px">
       <div class="section-title"><h2>How referrals work</h2></div>
@@ -167,18 +174,35 @@ function viewUpdates() {
   }).catch(() => { seenMarked = false; });
 }
 
+// ---------- Post update (while the admin allows it) ----------
+
+function viewPost() {
+  const heading = sub => `<div class="view-head"><div><span class="kicker">Post update</span><h1>Send an update</h1><p>${sub}</p></div></div>`;
+  if (!data.manager.can_post_updates) {
+    setView(heading('Updates for the team and students.') +
+      emptyState('lock', 'Posting is turned off', 'The G-CATION admin can turn on posting updates for your account when needed.'));
+    return;
+  }
+  composerView({
+    heading: heading('The admin has let you post updates. Share class links, the community group or instructions with the team or with paid students.'),
+    base: '/api/management/updates', login: 'management-login.html',
+  }).catch(async e => {
+    if (e.status === 403 && await load()) viewPost(); // the admin turned it off meanwhile
+  });
+}
+
 // ---------- Profile ----------
 
 function viewProfile() {
   const m = data.manager;
   setView(`
-    <div class="view-head"><div><span class="kicker">Profile</span><h1>Your account</h1><p>Your details and password.</p></div></div>
+    <div class="view-head"><div><span class="kicker">Profile</span><h1>Your account</h1><p>Your details, log-in mobile and password.</p></div></div>
     <div class="grid-2" style="align-items:start">
       <div class="stack">
         <div class="card pad-lg">
           <div class="row" style="gap:16px">
             <span class="avatar-sm avatar-lg">${esc(initials(m.name))}</span>
-            <div style="min-width:0"><h2 style="margin:0;font-size:1.25rem">${esc(m.name)}</h2><div class="muted small">${esc(m.email)}</div>
+            <div style="min-width:0"><h2 style="margin:0;font-size:1.25rem">${esc(m.name)}</h2><div class="muted small">${esc(accountContact(m))}</div>
               <div class="tiny faint">Team member since ${fmtDate(m.created_at)}</div></div>
           </div>
           <div class="row" style="margin-top:16px">${idChip(m)}</div>
@@ -186,21 +210,16 @@ function viewProfile() {
         <div class="card pad-lg">
           <h3 class="card-title">${icon('user')} Personal details</h3>
           <dl class="sent-list" style="margin-top:12px">
-            <dt>Name</dt><dd>${esc(m.name)}</dd><dt>Email</dt><dd>${esc(m.email)}</dd>
+            <dt>Name</dt><dd>${esc(m.name)}</dd>
+            ${m.email ? `<dt>Email</dt><dd>${esc(m.email)}</dd>` : ''}
             ${m.phone ? `<dt>Phone</dt><dd>${esc(m.phone)}</dd>` : ''}
           </dl>
           <p class="tiny muted" style="margin:12px 0 0">To change these details, contact the G-CATION admin.</p>
         </div>
+        ${mobileCard(m)}
       </div>
       <div class="stack">
-        <form class="card pad-lg" id="passwordForm" novalidate>
-          <h3 class="card-title">${icon('key')} Change password</h3>
-          <p class="card-sub">You stay logged in here. Other devices are logged out.</p>
-          <div class="field"><label for="pCur">Current password</label><input id="pCur" name="current_password" type="password" autocomplete="current-password" required></div>
-          <div class="field"><label for="pNew">New password</label><input id="pNew" name="new_password" type="password" autocomplete="new-password" minlength="8" required><small>At least 8 characters.</small></div>
-          <div class="error"></div>
-          <button class="btn primary" type="submit">${icon('key')} Update password</button>
-        </form>
+        ${passwordCard(m)}
         <button class="btn danger block page-logout" id="logoutBtn2">${icon('logout')} Log out</button>
       </div>
     </div>
@@ -208,20 +227,9 @@ function viewProfile() {
   wireCopy();
   setupPasswordToggles();
   document.getElementById('logoutBtn2').addEventListener('click', logout);
-  const pw = document.getElementById('passwordForm');
-  pw.addEventListener('submit', async e => {
-    e.preventDefault();
-    const err = pw.querySelector('.error');
-    if (pw.new_password.value.length < 8) { showError(err, 'New password must be at least 8 characters.'); return; }
-    showError(err, '');
-    try {
-      await withLoading(pw.querySelector('button[type=submit]'), () => api('/api/management/me/password', { method: 'POST', body: {
-        current_password: pw.current_password.value, new_password: pw.new_password.value,
-      }}));
-      pw.reset();
-      showToast('Password updated.', 'success');
-    } catch (ex) { showError(err, ex.message); }
-  });
+  const reload = async () => { if (await load()) viewProfile(); };
+  wirePasswordCard('/api/management/me/password', reload);
+  wireMobileCard('management', reload);
 }
 
 // ---------- Boot ----------

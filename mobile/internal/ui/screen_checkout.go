@@ -22,12 +22,13 @@ type checkoutState struct {
 	step     int  // 1 pay, 2 share details, 3 call
 	resend   bool // re-open the steps after details were already sent
 	slot     string
+	cash     bool // paying in cash: no QR, UTR or screenshot
 	busy     bool
 	err      string
 
 	back, iPaid, prevStep, send, mail, copyMail, home, copyUPI, payApp, again widget.Clickable
 	call, copyPhone                                                           [2]widget.Clickable
-	seg                                                                       [2]widget.Clickable
+	seg, mode                                                                 [2]widget.Clickable
 	pick                                                                      [2]widget.Clickable
 	pickShot                                                                  widget.Clickable
 	payer, methodOther, amount, date, ref, age, referredBy, referralID        *field
@@ -51,8 +52,12 @@ func (s *checkoutState) init(a *App, c api.Course) {
 	s.methodOther = newField("Which app or bank?", "e.g. Kotak 811", false, key.HintAny)
 	s.age = newField("Your age", "", false, key.HintNumeric)
 	s.age.Ed.Filter = "0123456789"
-	s.referredBy = newField("Referred by (optional)", "Name of the person who told you about us", false, key.HintAny)
-	s.referralID = newField("Referral ID (optional)", "e.g. GCM001", false, key.HintAny)
+	optional := " (optional)"
+	if c.ReferralRequired {
+		optional = ""
+	}
+	s.referredBy = newField("Referred by"+optional, "Name of the person who told you about us", false, key.HintAny)
+	s.referralID = newField("Referral ID"+optional, "e.g. GCM001", false, key.HintAny)
 	s.amount = newField("Amount paid (in rupees)", "", false, key.HintNumeric)
 	s.amount.Ed.SetText(strconv.FormatFloat(c.Price, 'f', -1, 64))
 	s.amount.Ed.Filter = "0123456789."
@@ -232,10 +237,58 @@ func (a *App) method(slot string) (api.Method, bool) {
 
 func (a *App) stepPay(gtx C, c api.Course) D {
 	s := a.checkout
+	for i := range s.mode {
+		if s.mode[i].Clicked(gtx) {
+			s.cash = i == 1
+		}
+	}
+	if s.iPaid.Clicked(gtx) {
+		s.step = 2
+	}
+	on := 0
+	if s.cash {
+		on = 1
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx C) D { return a.segButtons(gtx, []string{"UPI / QR", "Cash"}, on, s.mode[:]) }),
+		layout.Rigid(vspace(12)),
+		layout.Rigid(func(gtx C) D {
+			if s.cash {
+				return a.stepPayCash(gtx, c)
+			}
+			return a.stepPayUPI(gtx, c)
+		}),
+	)
+}
+
+func (a *App) stepPayCash(gtx C, c api.Course) D {
+	return a.th.card(gtx, 16, func(gtx C) D {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx C) D {
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Flexed(1, func(gtx C) D { return a.th.muted(gtx, "Amount to pay in cash", 14) }),
+					layout.Rigid(func(gtx C) D { return a.th.money(gtx, c.Price, textOpt{size: 28, weight: font.Black}) }),
+				)
+			}),
+			layout.Rigid(vspace(16)),
+			layout.Rigid(func(gtx C) D {
+				return a.steps(gtx, []string{"Hand " + rupees(c.Price) + " in cash to the G-CATION office or team.",
+					"No UTR or screenshot is needed for cash.", "Share your details on the next step so the admin can match your payment."})
+			}),
+			layout.Rigid(vspace(16)),
+			layout.Rigid(func(gtx C) D {
+				return a.th.button(gtx, &a.checkout.iPaid, "I have paid in cash  →", btnOpt{full: true, kind: btnOutline})
+			}),
+		)
+	})
+}
+
+func (a *App) stepPayUPI(gtx C, c api.Course) D {
+	s := a.checkout
 	methods := a.me.Payment.Methods
 	if len(methods) == 0 {
 		return a.th.notice(gtx, icAlert, toneAmber, func(gtx C) D {
-			return a.th.label(gtx, "Payment details are being updated. Please call the G-CATION team to pay.", textOpt{size: 13.5, color: a.th.P.Amber})
+			return a.th.label(gtx, "UPI payment details are being updated. Pay in cash, or call the G-CATION team to pay.", textOpt{size: 13.5, color: a.th.P.Amber})
 		})
 	}
 	m, ok := a.method(s.slot)
@@ -252,9 +305,6 @@ func (a *App) stepPay(gtx C, c api.Course) D {
 	}
 	if s.payApp.Clicked(gtx) {
 		a.open(upiURL(m.UPIID, m.PayeeName, c.Price, a.upiNote()))
-	}
-	if s.iPaid.Clicked(gtx) {
-		s.step = 2
 	}
 
 	return a.th.card(gtx, 16, func(gtx C) D {
@@ -326,31 +376,44 @@ func (a *App) stepPay(gtx C, c api.Course) D {
 
 func (a *App) segmented(gtx C, methods []api.Method) D {
 	s := a.checkout
+	var labels []string
+	on := 0
+	for i, m := range methods {
+		if i >= 2 {
+			break
+		}
+		label := m.Label
+		if label == "" {
+			label = map[string]string{"primary": "Primary QR", "secondary": "Secondary QR"}[m.Slot]
+		}
+		if m.Slot == s.slot {
+			on = i
+		}
+		labels = append(labels, label)
+	}
+	return a.segButtons(gtx, labels, on, s.seg[:])
+}
+
+// segButtons is a row of equal-width tabs; on is the selected one.
+func (a *App) segButtons(gtx C, labels []string, on int, clicks []widget.Clickable) D {
 	return tinted(gtx, a.th.P.Lav, 13, 4, func(gtx C) D {
 		kids := []layout.FlexChild{}
-		for i, m := range methods {
-			if i >= 2 {
-				break
-			}
+		for i, label := range labels {
 			if i > 0 {
 				kids = append(kids, layout.Rigid(hspace(4)))
 			}
-			on := m.Slot == s.slot
-			label := m.Label
-			if label == "" {
-				label = map[string]string{"primary": "Primary QR", "secondary": "Secondary QR"}[m.Slot]
-			}
+			selected := i == on
 			kids = append(kids, layout.Flexed(1, func(gtx C) D {
-				return s.seg[i].Layout(gtx, func(gtx C) D {
+				return clicks[i].Layout(gtx, func(gtx C) D {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
 					return withBackground(gtx, func(gtx C, size image.Point) {
-						if on {
+						if selected {
 							fillRound(gtx, size, 10, a.th.P.Surface)
 						}
 					}, func(gtx C) D {
 						return layout.Inset{Top: 10, Bottom: 10, Left: 6, Right: 6}.Layout(gtx, func(gtx C) D {
 							fg := a.th.P.Muted
-							if on {
+							if selected {
 								fg = a.th.P.Accent
 							}
 							return centered(gtx, label, a.th, textOpt{size: 13.5, weight: font.Bold, color: fg, maxLines: 1})
@@ -430,13 +493,18 @@ func (a *App) stepDetails(gtx C, c api.Course) D {
 	if s.pickShot.Clicked(gtx) {
 		a.pickScreenshot()
 	}
+	title, payer := "Share your payment details", "Name on bank / UPI account"
+	if s.cash {
+		title, payer = "Share your cash payment details", "Name of the person who paid"
+	}
+	s.payer.Label = payer
 	return a.th.card(gtx, 18, func(gtx C) D {
 		kids := []layout.FlexChild{
-			layout.Rigid(func(gtx C) D { return a.th.title(gtx, "Share your payment details", 18) }),
+			layout.Rigid(func(gtx C) D { return a.th.title(gtx, title, 18) }),
 			layout.Rigid(vspace(4)),
 			layout.Rigid(func(gtx C) D { return a.th.muted(gtx, "This helps us find your payment in seconds.", 13.5) }),
 		}
-		if len(methods) > 1 {
+		if len(methods) > 1 && !s.cash {
 			kids = append(kids, layout.Rigid(vspace(14)),
 				layout.Rigid(func(gtx C) D {
 					return a.th.label(gtx, "Which QR did you pay to?", textOpt{size: 13, weight: font.SemiBold, color: a.th.P.Ink2})
@@ -480,14 +548,18 @@ func (a *App) stepDetails(gtx C, c api.Course) D {
 			}
 		}
 		fields(s.payer)
-		kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D {
-			return a.dropdown(gtx, "payapp", "Paid using", "Select the app you paid with", payApps, &s.method, &s.methodOpen)
-		}))
-		if s.otherMethod() {
-			fields(s.methodOther)
+		if s.cash {
+			fields(s.amount, s.date, s.age, s.referredBy, s.referralID)
+		} else {
+			kids = append(kids, layout.Rigid(vspace(12)), layout.Rigid(func(gtx C) D {
+				return a.dropdown(gtx, "payapp", "Paid using", "Select the app you paid with", payApps, &s.method, &s.methodOpen)
+			}))
+			if s.otherMethod() {
+				fields(s.methodOther)
+			}
+			fields(s.amount, s.date, s.ref, s.age, s.referredBy, s.referralID)
+			kids = append(kids, layout.Rigid(vspace(14)), layout.Rigid(func(gtx C) D { return a.screenshotPicker(gtx) }))
 		}
-		fields(s.amount, s.date, s.ref, s.age, s.referredBy, s.referralID)
-		kids = append(kids, layout.Rigid(vspace(14)), layout.Rigid(func(gtx C) D { return a.screenshotPicker(gtx) }))
 		kids = append(kids,
 			layout.Rigid(func(gtx C) D {
 				if s.err == "" {
@@ -511,11 +583,15 @@ func (a *App) stepDetails(gtx C, c api.Course) D {
 func (a *App) sendClaim(c api.Course) {
 	s := a.checkout
 	in := api.ClaimIn{
-		CourseID: c.ID, QRSlot: s.slot, PayerName: s.payer.Text(),
+		CourseID: c.ID, PayMode: "upi", QRSlot: s.slot, PayerName: s.payer.Text(),
 		PaidOn: s.date.Text(), Reference: s.ref.Text(), ReferredBy: s.referredBy.Text(),
 		ReferralID: strings.ToUpper(strings.ReplaceAll(s.referralID.Text(), " ", "")),
 	}
+	if s.cash {
+		in.PayMode, in.QRSlot, in.Method, in.Reference = "cash", "", "Cash", ""
+	}
 	switch {
+	case s.cash:
 	case s.method < 0:
 		s.err = "Choose the app you paid with."
 		return
@@ -528,7 +604,7 @@ func (a *App) sendClaim(c api.Course) {
 		s.err = "Type the app or bank you paid with."
 		return
 	}
-	if len(in.Reference) < 6 {
+	if !s.cash && len(in.Reference) < 6 {
 		s.err = "Enter the UTR / transaction ID from your payment app."
 		return
 	}
@@ -538,15 +614,24 @@ func (a *App) sendClaim(c api.Course) {
 		return
 	}
 	in.Age = &age
+	if c.ReferralRequired && (in.ReferredBy == "" || in.ReferralID == "") {
+		s.err = "This course needs the name and Referral ID of the person who referred you."
+		return
+	}
 	if in.ReferralID != "" && !referralRE.MatchString(in.ReferralID) {
 		s.err = "Referral ID looks like GCM001. Check it, or leave it empty."
+		if c.ReferralRequired {
+			s.err = "Referral ID looks like GCM001. Check it."
+		}
 		return
 	}
-	if len(s.shot) == 0 {
-		s.err = "Upload the screenshot of your payment."
-		return
+	if !s.cash {
+		if len(s.shot) == 0 {
+			s.err = "Upload the screenshot of your payment."
+			return
+		}
+		in.Screenshot = base64.StdEncoding.EncodeToString(s.shot)
 	}
-	in.Screenshot = base64.StdEncoding.EncodeToString(s.shot)
 	if amt := strings.TrimSpace(s.amount.Ed.Text()); amt != "" {
 		v, err := strconv.ParseFloat(amt, 64)
 		if err != nil {
@@ -589,7 +674,7 @@ func (a *App) stepCall(gtx C, c api.Course) D {
 			layout.Rigid(func(gtx C) D { return centered(gtx, "Almost done!", a.th, textOpt{size: 21, weight: font.Bold}) }),
 			layout.Rigid(vspace(6)),
 			layout.Rigid(func(gtx C) D {
-				msg := "Call or email us from your registered email " + a.me.Student.Email + ". We unlock your course right after."
+				msg := "Call or email us from your registered number " + contactText(a.me.Student.SignIn, a.me.Student.Email, a.me.Student.Phone) + ". We unlock your course right after."
 				if code := a.me.Student.Code(); code != "" {
 					msg = "Call or email us with your Student ID " + code + ". We unlock your course right after."
 				}
@@ -718,14 +803,20 @@ func (a *App) statusPanel(gtx C, c api.Course) []layout.Widget {
 	}
 	sent := func(gtx C) D {
 		var lines [][2]string
-		if m, ok := a.method(p.QRSlot); ok {
+		if p.PayMode == "cash" {
+			lines = append(lines, [2]string{"Paid by", "Cash"})
+		} else if m, ok := a.method(p.QRSlot); ok {
 			lines = append(lines, [2]string{"Paid to", m.Label})
+		}
+		using := p.Method
+		if p.PayMode == "cash" {
+			using = ""
 		}
 		age := ""
 		if p.Age != nil {
 			age = strconv.Itoa(*p.Age)
 		}
-		for _, kv := range [][2]string{{"Payer", p.PayerName}, {"Using", p.Method}, {"Date", p.PaidOn}, {"UTR", p.Reference}, {"Age", age}, {"Referred", p.ReferredBy}, {"Referral ID", p.ReferralID}, {"Screenshot", map[bool]string{true: "Attached"}[p.HasScreenshot]}} {
+		for _, kv := range [][2]string{{"Payer", p.PayerName}, {"Using", using}, {"Date", p.PaidOn}, {"UTR", p.Reference}, {"Age", age}, {"Referred", p.ReferredBy}, {"Referral ID", p.ReferralID}, {"Screenshot", map[bool]string{true: "Attached"}[p.HasScreenshot]}} {
 			if kv[1] != "" {
 				lines = append(lines, kv)
 			}

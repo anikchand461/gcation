@@ -459,3 +459,72 @@ document.querySelectorAll('[data-theme-toggle]').forEach(btn =>
   btn.addEventListener('click', () => setTheme(currentTheme() === 'dark' ? 'light' : 'dark')));
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintThemeButtons);
 paintThemeButtons();
+
+// ---------- Profile: sign-in details (students and management) ----------
+
+// How an account is shown: its log-in mobile, else its email, else its phone.
+function accountContact(a) {
+  return a.mobile ? '+91 ' + a.mobile : a.email || a.phone || '';
+}
+
+// "Mobile number for log in" card on the profile pages: set it (some older and Google accounts
+// have none yet) or change it.
+function mobileCard(a) {
+  return `<form class="card pad-lg" id="mobileForm" novalidate>
+    <h3 class="card-title">${icon('smartphone')} Mobile number for log in</h3>
+    <p class="card-sub">${a.mobile ? `You log in with <b>+91 ${esc(a.mobile)}</b>.`
+      : 'Add your mobile number to log in with it and your password.'}</p>
+    <div class="field"><label for="mMobile">${a.mobile ? 'New mobile number' : 'Mobile number'}</label>
+      <div class="input-addon"><span class="addon">+91</span>
+        <input id="mMobile" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="10-digit mobile number" value="${esc(a.mobile)}"></div></div>
+    <div class="error"></div>
+    <button class="btn primary" type="submit">${icon('check')} Save mobile number</button>
+  </form>`;
+}
+
+function wireMobileCard(role, onSaved) {
+  const f = document.getElementById('mobileForm'), err = f.querySelector('.error');
+  f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const mobile = document.getElementById('mMobile').value.replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '');
+    if (!/^[6-9]\d{9}$/.test(mobile)) { showError(err, 'Enter a valid 10-digit mobile number.'); return; }
+    showError(err, '');
+    try {
+      await withLoading(f.querySelector('button[type=submit]'), () =>
+        api((role === 'management' ? '/api/management' : '/api') + '/me/mobile', { method: 'PUT', body: { mobile } }));
+      showToast('Mobile number saved. You can log in with it now.', 'success');
+      onSaved();
+    } catch (ex) { showError(err, ex.message); }
+  });
+}
+
+// Change password; accounts made with Google have none yet, so they set one without the current password.
+function passwordCard(a) {
+  return `<form class="card pad-lg" id="passwordForm" novalidate>
+    <h3 class="card-title">${icon('key')} ${a.has_password ? 'Change password' : 'Set a password'}</h3>
+    <p class="card-sub">${a.has_password ? 'You stay logged in here. Other devices are logged out.'
+      : 'You sign in with Google. Set a password to also log in with your mobile number.'}</p>
+    ${a.has_password ? '<div class="field"><label for="pCur">Current password</label><input id="pCur" name="current_password" type="password" autocomplete="current-password" required></div>' : ''}
+    <div class="field"><label for="pNew">New password</label><input id="pNew" name="new_password" type="password" autocomplete="new-password" minlength="8" required><small>At least 8 characters.</small></div>
+    <div class="error"></div>
+    <button class="btn primary" type="submit">${icon('key')} ${a.has_password ? 'Update password' : 'Set password'}</button>
+  </form>`;
+}
+
+function wirePasswordCard(path, onSaved) {
+  const pw = document.getElementById('passwordForm');
+  pw.addEventListener('submit', async e => {
+    e.preventDefault();
+    const err = pw.querySelector('.error');
+    if (pw.new_password.value.length < 8) { showError(err, 'New password must be at least 8 characters.'); return; }
+    showError(err, '');
+    try {
+      await withLoading(pw.querySelector('button[type=submit]'), () => api(path, { method: 'POST', body: {
+        current_password: pw.current_password ? pw.current_password.value : '', new_password: pw.new_password.value,
+      }}));
+      pw.reset();
+      showToast('Password saved.', 'success');
+      onSaved();
+    } catch (ex) { showError(err, ex.message); }
+  });
+}

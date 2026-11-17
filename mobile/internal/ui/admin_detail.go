@@ -48,7 +48,7 @@ func (a *App) openStudent(id, claimID int64) {
 		days:    newField("Days of access", "", false, key.HintNumeric),
 		note:    newArea("Payment notes", "e.g. SBI, paid by Rahul, UTR 4123…, confirmed on call"),
 		name:    newField("Full name", "", false, key.HintAny),
-		email:   newField("Email", "", false, key.HintEmail),
+		email:   newField("Email (optional)", "", false, key.HintEmail),
 		phone:   newField("Phone", "", false, key.HintTelephone),
 		newPass: newField("New password", "At least 8 characters", false, key.HintAny),
 	}
@@ -236,7 +236,9 @@ func (a *App) studentDetailItems(gtx C, d *studentDetail) []layout.Widget {
 							layout.Flexed(1, func(gtx C) D {
 								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 									layout.Rigid(func(gtx C) D { return a.th.label(gtx, st.Name, textOpt{size: 17, weight: font.Bold}) }),
-									layout.Rigid(func(gtx C) D { return a.th.muted(gtx, studentIDText(st)+" · "+st.Email, 13) }),
+									layout.Rigid(func(gtx C) D {
+										return a.th.muted(gtx, joinDot(studentIDText(st), prefix("logs in with ", st.MobileText()), st.Email), 13)
+									}),
 									layout.Rigid(func(gtx C) D { return a.th.muted(gtx, "Joined "+fmtDate(st.CreatedAt), 12) }),
 								)
 							}),
@@ -256,9 +258,13 @@ func (a *App) studentDetailItems(gtx C, d *studentDetail) []layout.Widget {
 								}),
 								layout.Rigid(hspace(6)))
 						}
-						kids = append(kids, layout.Flexed(1, func(gtx C) D {
-							return a.th.button(gtx, &d.mail, "Email", btnOpt{kind: btnSoft, small: true, full: true, icon: icMail})
-						}))
+						if st.Email != "" {
+							kids = append(kids, layout.Flexed(1, func(gtx C) D {
+								return a.th.button(gtx, &d.mail, "Email", btnOpt{kind: btnSoft, small: true, full: true, icon: icMail})
+							}))
+						} else if len(kids) > 0 {
+							kids = kids[:len(kids)-1] // drop the gap after WhatsApp
+						}
 						return layout.Flex{}.Layout(gtx, kids...)
 					}),
 				)
@@ -302,11 +308,14 @@ func (a *App) studentDetailItems(gtx C, d *studentDetail) []layout.Widget {
 						amount = rupees(*c.Amount)
 					}
 					line := fmt.Sprintf("%s to %s", amount, a.qrLabel(c.QRSlot))
+					if c.PayMode == "cash" {
+						line = amount + " paid in cash"
+					}
 					age := ""
 					if c.Age != nil {
 						age = fmt.Sprint("age ", *c.Age)
 					}
-					for _, p := range []string{prefix("via ", c.Method), prefix("payer ", c.PayerName), c.PaidOn, prefix("UTR ", c.Reference), age, prefix("referred by ", referralText(c))} {
+					for _, p := range []string{prefix("via ", upiMethod(c)), prefix("payer ", c.PayerName), c.PaidOn, prefix("UTR ", c.Reference), age, prefix("referred by ", referralText(c))} {
 						if p != "" {
 							line += " · " + p
 						}
